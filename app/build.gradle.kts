@@ -99,7 +99,14 @@ configure<ApplicationExtension> {
         buildConfig = true
         compose = true
     }
-
+	signingConfigs {
+        create("release") {
+            storeFile = file(System.getenv("SIGNING_STORE_PATH") ?: "florisboard.keystore")
+            storePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: ""
+            keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: ""
+        }
+    }
     buildTypes {
         named("debug") {
             applicationIdSuffix = ".debug"
@@ -120,7 +127,7 @@ configure<ApplicationExtension> {
 
         named("release") {
             versionNameSuffix = projectVersionNameSuffix
-
+			signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             isMinifyEnabled = true
             isShrinkResources = true

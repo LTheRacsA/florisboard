@@ -84,6 +84,8 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
 		        val jsonData = Json.decodeFromString(wordDataSerializer, rawData)
 		        wordData.putAll(jsonData)
 		        }
+		        }
+		        }
 
     override suspend fun spell(
         subtype: Subtype,

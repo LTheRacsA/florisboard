@@ -150,5 +150,6 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     override suspend fun destroy() {
         // Here we have the chance to de-allocate memory and finish our work. However this might never be called if
         // the app process is killed (which will most likely always be the case).
+        // Spanish NLP enabled
     }
 }

@@ -69,15 +69,21 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         // The subtype we get here contains a lot of data, however we are only interested in subtype.primaryLocale and
         // subtype.secondaryLocales.
 
-        wordData.withLock { wordData ->
-            if (wordData.isEmpty()) {
-                // Here we use readText() because the test dictionary is a json dictionary
-                val rawData = appContext.assets.readText("ime/dict/data.json")
-                val jsonData = Json.decodeFromString(wordDataSerializer, rawData)
-                wordData.putAll(jsonData)
-            }
-        }
-    }
+
+		wordData.withLock { wordData ->
+		    if (wordData.isEmpty()) {
+		        val externalFile = java.io.File(
+		            android.os.Environment.getExternalStorageDirectory(),
+		            "FlorisBoard/dict/data.json"
+		        )
+		        val rawData = if (externalFile.exists()) {
+		            externalFile.readText(Charsets.UTF_8)
+		        } else {
+		            appContext.assets.readText("ime/dict/data.json")
+		        }
+		        val jsonData = Json.decodeFromString(wordDataSerializer, rawData)
+		        wordData.putAll(jsonData)
+		        }
 
     override suspend fun spell(
         subtype: Subtype,

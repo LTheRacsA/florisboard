@@ -36,7 +36,7 @@ import org.florisboard.lib.kotlin.guardedByLock
 import java.io.File
 
 // ──────────────────────────────────────────────
-// Trie: búsqueda instantánea por prefijo
+// Trie
 // ──────────────────────────────────────────────
 private class TrieNode {
     val children = HashMap<Char, TrieNode>()
@@ -82,12 +82,11 @@ private class Trie {
 }
 
 // ──────────────────────────────────────────────
-// UserDictionary: aprendizaje personalizado
+// UserDictionary
 // ──────────────────────────────────────────────
-private class UserDictionary(context: Context) {
-    data class Entry(val freq: Int, val validated: Boolean
+private class UserDictionary(private val context: Context) {
     private val file = File(context.filesDir, "user_dict.json")
-    private val entries = mutableMapOf<String, Entry>()
+    private val wordFreqs = mutableMapOf<String, Int>()
     private val baseWords = mutableSetOf<String>()
     private val json = Json { ignoreUnknownKeys = true }
     private val serializer = MapSerializer(String.serializer(), Int.serializer())
@@ -101,10 +100,8 @@ private class UserDictionary(context: Context) {
         try {
             val raw = file.readText(Charsets.UTF_8)
             val map = json.decodeFromString(serializer, raw)
-            entries.clear()
-            map.forEach { (word, freq) ->
-                entries[word] = Entry(freq, baseWords.contains(word))
-            }
+            wordFreqs.clear()
+            wordFreqs.putAll(map)
         } catch (e: Exception) {
             flogDebug { "UserDictionary load error: ${e.message}" }
         }
@@ -113,8 +110,7 @@ private class UserDictionary(context: Context) {
     fun save() {
         try {
             file.parentFile?.mkdirs()
-            val map = entries.mapValues { it.value.freq }
-            file.writeText(json.encodeToString(serializer, map), Charsets.UTF_8)
+            file.writeText(json.encodeToString(serializer, wordFreqs), Charsets.UTF_8)
         } catch (e: Exception) {
             flogDebug { "UserDictionary save error: ${e.message}" }
         }
@@ -123,27 +119,28 @@ private class UserDictionary(context: Context) {
     fun recordWord(word: String) {
         val normalized = word.trim().lowercase()
         if (normalized.length < 2) return
-        val existing = entries[normalized]
         val isValidated = baseWords.contains(normalized)
         val increment = if (isValidated) 10 else 5
-        val currentFreq = existing?.freq ?: 0
-        entries[normalized] = Entry(currentFreq + increment, isValidated)
+        val current = wordFreqs.getOrDefault(normalized, 0)
+        wordFreqs[normalized] = current + increment
         save()
     }
 
     fun getFrequency(word: String): Int {
-        return entries[word]?.freq ?: 0
+        return wordFreqs.getOrDefault(word, 0)
     }
 
-    fun getUserTrie(maxResults: Int = 500): Trie {
+    fun buildTrie(): Trie {
         val trie = Trie()
-        entries.forEach { (word, entry) -> trie.insert(word, entry.freq) }
+        for ((word, freq) in wordFreqs) {
+            trie.insert(word, freq)
+        }
         return trie
     }
 }
 
 // ──────────────────────────────────────────────
-// LatinLanguageProvider principal
+// LatinLanguageProvider
 // ──────────────────────────────────────────────
 class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProvider {
     companion object {
@@ -164,7 +161,6 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     override suspend fun preload(subtype: Subtype) = withContext(Dispatchers.IO) {
         wordData.withLock { data ->
             if (data.isEmpty()) {
-                // 1. Cargar diccionario base
                 val externalFile = File(
                     android.os.Environment.getExternalStorageDirectory(),
                     "FlorisBoard/dict/data.json"
@@ -177,15 +173,13 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
                 val jsonData = Json.decodeFromString(wordDataSerializer, rawData)
                 data.putAll(jsonData)
 
-                // 2. Construir Trie base (ordenado por frecuencia desc)
                 data.entries
                     .sortedByDescending { it.value }
                     .forEach { baseTrie.insert(it.key, it.value) }
 
-                // 3. Cargar diccionario de usuario
                 userDictionary.loadBaseWords(data.keys)
                 userDictionary.load()
-                userTrie = userDictionary.getUserTrie()
+                userTrie = userDictionary.buildTrie()
             }
         }
     }
@@ -215,7 +209,6 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     ): List<SuggestionCandidate> {
         val inputText = content.composingText.trim().lowercase()
 
-        // Sin texto: mostrar palabras más frecuentes del usuario o del base
         if (inputText.isBlank()) {
             val defaults = userTrie.searchByPrefix("", maxCandidateCount).ifEmpty {
                 baseTrie.searchByPrefix("de", maxCandidateCount)
@@ -230,11 +223,9 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             }
         }
 
-        // Buscar en Trie de usuario primero, luego en base
         val userMatches = userTrie.searchByPrefix(inputText, maxCandidateCount)
         val baseMatches = baseTrie.searchByPrefix(inputText, maxCandidateCount)
 
-        // Combinar: usuario tiene prioridad, sin duplicados
         val seen = mutableSetOf<String>()
         val combined = mutableListOf<Pair<String, Int>>()
 
@@ -257,11 +248,10 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     override suspend fun notifySuggestionAccepted(subtype: Subtype, candidate: SuggestionCandidate) {
-        // Registrar palabra aceptada en diccionario de usuario
         val word = candidate.text.toString()
         withContext(Dispatchers.IO) {
             userDictionary.recordWord(word)
-            userTrie = userDictionary.getUserTrie()
+            userTrie = userDictionary.buildTrie()
         }
         flogDebug { "Word accepted and recorded: $word" }
     }

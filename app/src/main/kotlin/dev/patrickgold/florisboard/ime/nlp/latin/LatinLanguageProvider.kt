@@ -23,8 +23,8 @@ import dev.patrickgold.florisboard.ime.editor.EditorContent
 import dev.patrickgold.florisboard.ime.nlp.SpellingProvider
 import dev.patrickgold.florisboard.ime.nlp.SpellingResult
 import dev.patrickgold.florisboard.ime.nlp.SuggestionCandidate
-import dev.patrickgold.florisboard.ime.nlp.WordSuggestionCandidate
 import dev.patrickgold.florisboard.ime.nlp.SuggestionProvider
+import dev.patrickgold.florisboard.ime.nlp.WordSuggestionCandidate
 import dev.patrickgold.florisboard.lib.devtools.flogDebug
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -33,59 +33,166 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import org.florisboard.lib.android.readText
 import org.florisboard.lib.kotlin.guardedByLock
+import java.io.File
 
+// ──────────────────────────────────────────────
+// Trie: búsqueda instantánea por prefijo
+// ──────────────────────────────────────────────
+private class TrieNode {
+    val children = HashMap<Char, TrieNode>()
+    var frequency: Int = 0
+    var isWord: Boolean = false
+}
+
+private class Trie {
+    private val root = TrieNode()
+
+    fun insert(word: String, frequency: Int) {
+        var node = root
+        for (ch in word) {
+            node = node.children.getOrPut(ch) { TrieNode() }
+        }
+        node.isWord = true
+        node.frequency = frequency
+    }
+
+    fun searchByPrefix(prefix: String, maxResults: Int): List<Pair<String, Int>> {
+        var node = root
+        for (ch in prefix) {
+            node = node.children[ch] ?: return emptyList()
+        }
+        val results = mutableListOf<Pair<String, Int>>()
+        collectWords(node, prefix, results, maxResults)
+        return results.sortedByDescending { it.second }
+    }
+
+    private fun collectWords(
+        node: TrieNode,
+        current: String,
+        results: MutableList<Pair<String, Int>>,
+        maxResults: Int,
+    ) {
+        if (results.size >= maxResults) return
+        if (node.isWord) results.add(current to node.frequency)
+        for ((ch, child) in node.children) {
+            if (results.size >= maxResults) return
+            collectWords(child, current + ch, results, maxResults)
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
+// UserDictionary: aprendizaje personalizado
+// ──────────────────────────────────────────────
+private class UserDictionary(context: Context) {
+    data class Entry(val freq: Int, val validated: Boolean)
+
+    private val file = File(
+        android.os.Environment.getExternalStorageDirectory(),
+        "FlorisBoard/dict/user_dict.json"
+    )
+    private val entries = mutableMapOf<String, Entry>()
+    private val baseWords = mutableSetOf<String>()
+    private val json = Json { ignoreUnknownKeys = true }
+    private val serializer = MapSerializer(String.serializer(), Int.serializer())
+
+    fun loadBaseWords(words: Set<String>) {
+        baseWords.addAll(words)
+    }
+
+    fun load() {
+        if (!file.exists()) return
+        try {
+            val raw = file.readText(Charsets.UTF_8)
+            val map = json.decodeFromString(serializer, raw)
+            entries.clear()
+            map.forEach { (word, freq) ->
+                entries[word] = Entry(freq, baseWords.contains(word))
+            }
+        } catch (e: Exception) {
+            flogDebug { "UserDictionary load error: ${e.message}" }
+        }
+    }
+
+    fun save() {
+        try {
+            file.parentFile?.mkdirs()
+            val map = entries.mapValues { it.value.freq }
+            file.writeText(json.encodeToString(serializer, map), Charsets.UTF_8)
+        } catch (e: Exception) {
+            flogDebug { "UserDictionary save error: ${e.message}" }
+        }
+    }
+
+    fun recordWord(word: String) {
+        val normalized = word.trim().lowercase()
+        if (normalized.length < 2) return
+        val existing = entries[normalized]
+        val isValidated = baseWords.contains(normalized)
+        val increment = if (isValidated) 10 else 5
+        val currentFreq = existing?.freq ?: 0
+        entries[normalized] = Entry(currentFreq + increment, isValidated)
+        save()
+    }
+
+    fun getFrequency(word: String): Int {
+        return entries[word]?.freq ?: 0
+    }
+
+    fun getUserTrie(maxResults: Int = 500): Trie {
+        val trie = Trie()
+        entries.forEach { (word, entry) -> trie.insert(word, entry.freq) }
+        return trie
+    }
+}
+
+// ──────────────────────────────────────────────
+// LatinLanguageProvider principal
+// ──────────────────────────────────────────────
 class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProvider {
     companion object {
-        // Default user ID used for all subtypes, unless otherwise specified.
-        // See `ime/core/Subtype.kt` Line 210 and 211 for the default usage
         const val ProviderId = "org.florisboard.nlp.providers.latin"
     }
 
     private val appContext by context.appContext()
-
     private val wordData = guardedByLock { mutableMapOf<String, Int>() }
     private val wordDataSerializer = MapSerializer(String.serializer(), Int.serializer())
+    private val baseTrie = Trie()
+    private val userDictionary = UserDictionary(context)
+    private var userTrie = Trie()
 
     override val providerId = ProviderId
 
-    override suspend fun create() {
-        // Here we initialize our provider, set up all things which are not language dependent.
-    }
+    override suspend fun create() {}
 
     override suspend fun preload(subtype: Subtype) = withContext(Dispatchers.IO) {
-        // Here we have the chance to preload dictionaries and prepare a neural network for a specific language.
-        // Is kept in sync with the active keyboard subtype of the user, however a new preload does not necessary mean
-        // the previous language is not needed anymore (e.g. if the user constantly switches between two subtypes)
+        wordData.withLock { data ->
+            if (data.isEmpty()) {
+                // 1. Cargar diccionario base
+                val externalFile = File(
+                    android.os.Environment.getExternalStorageDirectory(),
+                    "FlorisBoard/dict/data.json"
+                )
+                val rawData = if (externalFile.exists()) {
+                    externalFile.readText(Charsets.UTF_8)
+                } else {
+                    appContext.assets.readText("ime/dict/data.json")
+                }
+                val jsonData = Json.decodeFromString(wordDataSerializer, rawData)
+                data.putAll(jsonData)
 
-        // To read a file from the APK assets the following methods can be used:
-        // appContext.assets.open()
-        // appContext.assets.reader()
-        // appContext.assets.bufferedReader()
-        // appContext.assets.readText()
-        // To copy an APK file/dir to the file system cache (appContext.cacheDir), the following methods are available:
-        // appContext.assets.copy()
-        // appContext.assets.copyRecursively()
+                // 2. Construir Trie base (ordenado por frecuencia desc)
+                data.entries
+                    .sortedByDescending { it.value }
+                    .forEach { baseTrie.insert(it.key, it.value) }
 
-        // The subtype we get here contains a lot of data, however we are only interested in subtype.primaryLocale and
-        // subtype.secondaryLocales.
-
-
-		wordData.withLock { wordData ->
-		    if (wordData.isEmpty()) {
-		        val externalFile = java.io.File(
-		            android.os.Environment.getExternalStorageDirectory(),
-		            "FlorisBoard/dict/data.json"
-		        )
-		        val rawData = if (externalFile.exists()) {
-		            externalFile.readText(Charsets.UTF_8)
-		        } else {
-		            appContext.assets.readText("ime/dict/data.json")
-		        }
-		        val jsonData = Json.decodeFromString(wordDataSerializer, rawData)
-		        wordData.putAll(jsonData)
-		        }
-		        }
-		        }
+                // 3. Cargar diccionario de usuario
+                userDictionary.loadBaseWords(data.keys)
+                userDictionary.load()
+                userTrie = userDictionary.getUserTrie()
+            }
+        }
+    }
 
     override suspend fun spell(
         subtype: Subtype,
@@ -97,12 +204,8 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         isPrivateSession: Boolean,
     ): SpellingResult {
         return when (word.lowercase()) {
-            // Use typo for typing errors
             "typo" -> SpellingResult.typo(arrayOf("typo1", "typo2", "typo3"))
-            // Use grammar error if the algorithm can detect this. On Android 11 and lower grammar errors are visually
-            // marked as typos due to a lack of support
             "gerror" -> SpellingResult.grammarError(arrayOf("grammar1", "grammar2", "grammar3"))
-            // Use valid word for valid input
             else -> SpellingResult.validWord()
         }
     }
@@ -115,19 +218,42 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         isPrivateSession: Boolean,
     ): List<SuggestionCandidate> {
         val inputText = content.composingText.trim().lowercase()
-        if (inputText.isBlank()) return emptyList()
-        val matches = wordData.withLock { data ->
-            data.entries
-                .filter { it.key.startsWith(inputText) }
-                .sortedByDescending { it.value }
-                .take(maxCandidateCount)
-                .map { it.key }
+
+        // Sin texto: mostrar palabras más frecuentes del usuario o del base
+        if (inputText.isBlank()) {
+            val defaults = userTrie.searchByPrefix("", maxCandidateCount).ifEmpty {
+                baseTrie.searchByPrefix("de", maxCandidateCount)
+            }
+            return defaults.map { (word, freq) ->
+                WordSuggestionCandidate(
+                    text = word,
+                    confidence = freq / 255.0,
+                    isEligibleForAutoCommit = false,
+                    sourceProvider = this@LatinLanguageProvider,
+                )
+            }
         }
 
-        return matches.map { word ->
+        // Buscar en Trie de usuario primero, luego en base
+        val userMatches = userTrie.searchByPrefix(inputText, maxCandidateCount)
+        val baseMatches = baseTrie.searchByPrefix(inputText, maxCandidateCount)
+
+        // Combinar: usuario tiene prioridad, sin duplicados
+        val seen = mutableSetOf<String>()
+        val combined = mutableListOf<Pair<String, Int>>()
+
+        for ((word, freq) in userMatches) {
+            if (seen.add(word)) combined.add(word to freq)
+        }
+        for ((word, freq) in baseMatches) {
+            if (seen.add(word)) combined.add(word to freq)
+            if (combined.size >= maxCandidateCount) break
+        }
+
+        return combined.take(maxCandidateCount).map { (word, freq) ->
             WordSuggestionCandidate(
                 text = word,
-                confidence = wordData.withLock { it.getOrDefault(word, 0) / 255.0 },
+                confidence = freq / 255.0,
                 isEligibleForAutoCommit = false,
                 sourceProvider = this@LatinLanguageProvider,
             )
@@ -135,8 +261,13 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     override suspend fun notifySuggestionAccepted(subtype: Subtype, candidate: SuggestionCandidate) {
-        // We can use flogDebug, flogInfo, flogWarning and flogError for debug logging, which is a wrapper for Logcat
-        flogDebug { candidate.toString() }
+        // Registrar palabra aceptada en diccionario de usuario
+        val word = candidate.text.toString()
+        withContext(Dispatchers.IO) {
+            userDictionary.recordWord(word)
+            userTrie = userDictionary.getUserTrie()
+        }
+        flogDebug { "Word accepted and recorded: $word" }
     }
 
     override suspend fun notifySuggestionReverted(subtype: Subtype, candidate: SuggestionCandidate) {
@@ -156,9 +287,5 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         return wordData.withLock { it.getOrDefault(word, 0) / 255.0 }
     }
 
-    override suspend fun destroy() {
-        // Here we have the chance to de-allocate memory and finish our work. However this might never be called if
-        // the app process is killed (which will most likely always be the case).
-        // Spanish NLP enabled
-    }
+    override suspend fun destroy() {}
 }

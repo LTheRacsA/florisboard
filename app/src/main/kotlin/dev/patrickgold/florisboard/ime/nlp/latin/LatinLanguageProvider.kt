@@ -56,6 +56,23 @@ private class Trie {
         node.frequency = frequency
     }
 
+    fun remove(word: String) {
+        fun removeHelper(node: TrieNode, word: String, depth: Int): Boolean {
+            if (depth == word.length) {
+                if (!node.isWord) return false
+                node.isWord = false
+                node.frequency = 0
+                return node.children.isEmpty()
+            }
+            val ch = word[depth]
+            val child = node.children[ch] ?: return false
+            val shouldDelete = removeHelper(child, word, depth + 1)
+            if (shouldDelete) node.children.remove(ch)
+            return !node.isWord && node.children.isEmpty()
+        }
+        removeHelper(root, word, 0)
+    }
+
     fun searchByPrefix(prefix: String, maxResults: Int): List<Pair<String, Int>> {
         var node = root
         for (ch in prefix) {
@@ -126,8 +143,12 @@ private class UserDictionary(private val context: Context) {
         save()
     }
 
-    fun getFrequency(word: String): Int {
-        return wordFreqs.getOrDefault(word, 0)
+    fun removeWord(word: String): Boolean {
+        val normalized = word.trim().lowercase()
+        if (!wordFreqs.containsKey(normalized)) return false
+        wordFreqs.remove(normalized)
+        save()
+        return true
     }
 
     fun buildTrie(): Trie {
@@ -209,15 +230,19 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     ): List<SuggestionCandidate> {
         val inputText = content.composingText.trim().lowercase()
 
+        // Sin texto: mostrar palabras frecuentes del usuario o del base
         if (inputText.isBlank()) {
             val defaults = userTrie.searchByPrefix("", maxCandidateCount).ifEmpty {
                 baseTrie.searchByPrefix("de", maxCandidateCount)
             }
-            return defaults.map { (word, freq) ->
+            val top = defaults
+            val reordered = if (top.size >= 2) listOf(top[1], top[0]) + top.drop(2) else top
+            return reordered.map { (word, freq) ->
                 WordSuggestionCandidate(
                     text = word,
                     confidence = freq / 255.0,
                     isEligibleForAutoCommit = false,
+                    isEligibleForUserRemoval = false,
                     sourceProvider = this@LatinLanguageProvider,
                 )
             }
@@ -237,11 +262,39 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             if (combined.size >= maxCandidateCount) break
         }
 
-        return combined.take(maxCandidateCount).map { (word, freq) ->
+        // Si no hay ninguna sugerencia, mostrar la palabra actual como candidato
+        if (combined.isEmpty()) {
+            return listOf(
+                WordSuggestionCandidate(
+                    text = inputText,
+                    confidence = 0.0,
+                    isEligibleForAutoCommit = false,
+                    isEligibleForUserRemoval = false,
+                    sourceProvider = this@LatinLanguageProvider,
+                )
+            )
+        }
+
+        // Reordenar: centro=1, izquierda=2, derecha=3
+        val top = combined.take(maxCandidateCount)
+        val reordered = if (top.size >= 2) listOf(top[1], top[0]) + top.drop(2) else top
+
+        // La palabra desconocida va al centro si no hay match exacto
+        val hasExactMatch = reordered.any { it.first == inputText }
+        val finalList = if (!hasExactMatch && reordered.isNotEmpty()) {
+            val unknown = inputText to 0
+            listOf(reordered[0], unknown) + reordered.drop(1)
+        } else {
+            reordered
+        }
+
+        return finalList.take(maxCandidateCount).map { (word, freq) ->
+            val isUserWord = userDictionary.getFrequency(word) > 0
             WordSuggestionCandidate(
                 text = word,
                 confidence = freq / 255.0,
                 isEligibleForAutoCommit = false,
+                isEligibleForUserRemoval = isUserWord,
                 sourceProvider = this@LatinLanguageProvider,
             )
         }
@@ -261,8 +314,15 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     override suspend fun removeSuggestion(subtype: Subtype, candidate: SuggestionCandidate): Boolean {
-        flogDebug { candidate.toString() }
-        return false
+        val word = candidate.text.toString()
+        return withContext(Dispatchers.IO) {
+            val removed = userDictionary.removeWord(word)
+            if (removed) {
+                userTrie = userDictionary.buildTrie()
+                flogDebug { "Word removed from user dict: $word" }
+            }
+            removed
+        }
     }
 
     override suspend fun getListOfWords(subtype: Subtype): List<String> {

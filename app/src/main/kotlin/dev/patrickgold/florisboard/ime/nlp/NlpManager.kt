@@ -311,30 +311,42 @@ class NlpManager(context: Context) {
                     }
 
                     // Obtener historial del clipboard (hasta 3 elementos)
-                    val clipHistory = clipboardManager.history.pinned + clipboardManager.history.recent
-                    val validClips = clipHistory
+                    val clipHistory = clipboardManager.historyFlow.value
+                    val validClips = (clipHistory.pinned + clipHistory.recent)
                         .filter { !it.text.isNullOrBlank() && !it.isSensitive }
                         .take(3)
 
                     if (!isTyping && validClips.isNotEmpty()) {
                         // Campo vacío: modo clipboard
-                        // Centro = clip#1, Izquierda = clip#2, Derecha = clip#3
-                        val primary = ClipboardSuggestionCandidate(validClips[0], sourceProvider = clipboardSuggestionProvider, context = context)
-                        val secondary = if (validClips.size > 1) ClipboardSuggestionCandidate(validClips[1], sourceProvider = clipboardSuggestionProvider, context = context) else null
-                        val tertiary = if (validClips.size > 2) ClipboardSuggestionCandidate(validClips[2], sourceProvider = clipboardSuggestionProvider, context = context) else null
+                        // Izquierda = clip#2, Centro = clip#1, Derecha = clip#3
                         buildList {
-                            if (secondary != null) add(secondary)
-                            add(primary)
-                            if (tertiary != null) add(tertiary)
+                            if (validClips.size > 1) add(ClipboardSuggestionCandidate(
+                                clipboardItem = validClips[1],
+                                sourceProvider = clipboardSuggestionProvider,
+                                context = clipboardSuggestionProvider.context,
+                            ))
+                            add(ClipboardSuggestionCandidate(
+                                clipboardItem = validClips[0],
+                                sourceProvider = clipboardSuggestionProvider,
+                                context = clipboardSuggestionProvider.context,
+                            ))
+                            if (validClips.size > 2) add(ClipboardSuggestionCandidate(
+                                clipboardItem = validClips[2],
+                                sourceProvider = clipboardSuggestionProvider,
+                                context = clipboardSuggestionProvider.context,
+                            ))
                         }
                     } else if (isTyping && validClips.isNotEmpty() && textCandidates.isNotEmpty()) {
                         // Campo con texto: modo híbrido
                         // Izquierda = texto#2, Centro = texto#1, Derecha = clip#1
-                        val clipPrimary = ClipboardSuggestionCandidate(validClips[0], sourceProvider = clipboardSuggestionProvider, context = context)
                         val textSlots = textCandidates.take(2)
                         buildList {
                             addAll(textSlots)
-                            add(clipPrimary)
+                            add(ClipboardSuggestionCandidate(
+                                clipboardItem = validClips[0],
+                                sourceProvider = clipboardSuggestionProvider,
+                                context = clipboardSuggestionProvider.context,
+                            ))
                         }
                     } else {
                         // Solo texto
@@ -395,7 +407,7 @@ class NlpManager(context: Context) {
         }
     }
 
-    inner class ClipboardSuggestionProvider internal constructor(private val context: Context) : SuggestionProvider {
+    inner class ClipboardSuggestionProvider internal constructor(internal val context: Context) : SuggestionProvider {
         private var lastClipboardItemId: Long = -1
 
         override val providerId = "org.florisboard.nlp.providers.clipboard"

@@ -300,18 +300,37 @@ class NlpManager(context: Context) {
         runBlocking {
             val candidates = when {
                 isSuggestionOn() -> {
-                    clipboardSuggestionProvider.suggest(
+                    // Obtener sugerencias de texto (slots centro e izquierda)
+                    val textCandidates = buildList {
+                        internalSuggestionsGuard.withLock {
+                            addAll(internalSuggestions.second)
+                        }
+                    }
+
+                    // Obtener sugerencia de portapapeles (slot derecho)
+                    val clipboardCandidates = clipboardSuggestionProvider.suggest(
                         subtype = Subtype.DEFAULT,
                         content = editorInstance.activeContent,
-                        maxCandidateCount = 8,
+                        maxCandidateCount = 1,
                         allowPossiblyOffensive = !prefs.suggestion.blockPossiblyOffensive.get(),
                         isPrivateSession = keyboardManager.activeState.isIncognitoMode,
-                    ).ifEmpty {
-                        buildList {
-                            internalSuggestionsGuard.withLock {
-                                addAll(internalSuggestions.second)
+                    )
+
+                    when {
+                        // Si no hay texto escrito: mostrar clipboard en centro
+                        textCandidates.isEmpty() && clipboardCandidates.isNotEmpty() -> {
+                            clipboardCandidates
+                        }
+                        // Híbrido: texto en centro+izquierda, clipboard en derecha
+                        textCandidates.isNotEmpty() && clipboardCandidates.isNotEmpty() -> {
+                            val textSlots = textCandidates.take(2)
+                            buildList {
+                                addAll(textSlots)
+                                add(clipboardCandidates.first())
                             }
                         }
+                        // Solo texto
+                        else -> textCandidates
                     }
                 }
                 else -> emptyList()

@@ -486,8 +486,6 @@ class NlpManager(context: Context) {
             currentItem?.takeIf {
                 // Check if already used
                 it.id != lastItemId
-                    // Check if content is empty
-                    && contentText.isBlank()
                     // Check if clipboard content has any valid characters
                     && !currentItem.text.isNullOrBlank()
                     && !blankStrRegex.matches(currentItem.text)

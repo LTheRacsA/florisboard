@@ -19,12 +19,17 @@ package dev.patrickgold.florisboard.ime.nlp.latin
 import android.content.Context
 import dev.patrickgold.florisboard.appContext
 import dev.patrickgold.florisboard.ime.core.Subtype
+import dev.patrickgold.florisboard.ime.dictionary.DictionaryManager
+import dev.patrickgold.florisboard.ime.dictionary.UserDictionaryEntry
+import dev.patrickgold.florisboard.ime.dictionary.FREQUENCY_DEFAULT
+import dev.patrickgold.florisboard.ime.dictionary.FREQUENCY_MAX
 import dev.patrickgold.florisboard.ime.editor.EditorContent
 import dev.patrickgold.florisboard.ime.nlp.SpellingProvider
 import dev.patrickgold.florisboard.ime.nlp.SpellingResult
 import dev.patrickgold.florisboard.ime.nlp.SuggestionCandidate
 import dev.patrickgold.florisboard.ime.nlp.SuggestionProvider
 import dev.patrickgold.florisboard.ime.nlp.WordSuggestionCandidate
+import dev.patrickgold.florisboard.lib.FlorisLocale
 import dev.patrickgold.florisboard.lib.devtools.flogDebug
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -60,7 +65,7 @@ private fun detectCapMode(composingText: String): CapMode {
 }
 
 // ──────────────────────────────────────────────
-// Trie
+// Trie — usado solo para el diccionario base
 // ──────────────────────────────────────────────
 private class TrieNode {
     val children = HashMap<Char, TrieNode>()
@@ -78,23 +83,6 @@ private class Trie {
         }
         node.isWord = true
         node.frequency = frequency
-    }
-
-    fun remove(word: String) {
-        fun removeHelper(node: TrieNode, word: String, depth: Int): Boolean {
-            if (depth == word.length) {
-                if (!node.isWord) return false
-                node.isWord = false
-                node.frequency = 0
-                return node.children.isEmpty()
-            }
-            val ch = word[depth]
-            val child = node.children[ch] ?: return false
-            val shouldDelete = removeHelper(child, word, depth + 1)
-            if (shouldDelete) node.children.remove(ch)
-            return !node.isWord && node.children.isEmpty()
-        }
-        removeHelper(root, word, 0)
     }
 
     fun searchByPrefix(prefix: String, maxResults: Int): List<Pair<String, Int>> {
@@ -123,72 +111,6 @@ private class Trie {
 }
 
 // ──────────────────────────────────────────────
-// UserDictionary
-// ──────────────────────────────────────────────
-private class UserDictionary(private val context: Context) {
-    private val file = File(context.filesDir, "user_dict.json")
-    private val wordFreqs = mutableMapOf<String, Int>()
-    private val baseWords = mutableSetOf<String>()
-    private val json = Json { ignoreUnknownKeys = true }
-    private val serializer = MapSerializer(String.serializer(), Int.serializer())
-
-    fun loadBaseWords(words: Set<String>) {
-        baseWords.addAll(words)
-    }
-
-    fun load() {
-        if (!file.exists()) return
-        try {
-            val raw = file.readText(Charsets.UTF_8)
-            val map = json.decodeFromString(serializer, raw)
-            wordFreqs.clear()
-            wordFreqs.putAll(map)
-        } catch (e: Exception) {
-            flogDebug { "UserDictionary load error: ${e.message}" }
-        }
-    }
-
-    fun save() {
-        try {
-            file.parentFile?.mkdirs()
-            file.writeText(json.encodeToString(serializer, wordFreqs), Charsets.UTF_8)
-        } catch (e: Exception) {
-            flogDebug { "UserDictionary save error: ${e.message}" }
-        }
-    }
-
-    fun recordWord(word: String) {
-        val normalized = word.trim().lowercase()
-        if (normalized.length < 2) return
-        val isValidated = baseWords.contains(normalized)
-        val increment = if (isValidated) 10 else 5
-        val current = wordFreqs.getOrDefault(normalized, 0)
-        wordFreqs[normalized] = current + increment
-        save()
-    }
-
-    fun getFrequency(word: String): Int {
-        return wordFreqs.getOrDefault(word, 0)
-    }
-
-    fun removeWord(word: String): Boolean {
-        val normalized = word.trim().lowercase()
-        if (!wordFreqs.containsKey(normalized)) return false
-        wordFreqs.remove(normalized)
-        save()
-        return true
-    }
-
-    fun buildTrie(): Trie {
-        val trie = Trie()
-        for ((word, freq) in wordFreqs) {
-            trie.insert(word, freq)
-        }
-        return trie
-    }
-}
-
-// ──────────────────────────────────────────────
 // LatinLanguageProvider
 // ──────────────────────────────────────────────
 class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProvider {
@@ -200,14 +122,15 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     private val wordData = guardedByLock { mutableMapOf<String, Int>() }
     private val wordDataSerializer = MapSerializer(String.serializer(), Int.serializer())
     private val baseTrie = Trie()
-    private val userDictionary = UserDictionary(context)
-    private var userTrie = Trie()
 
     override val providerId = ProviderId
 
     override suspend fun create() {}
 
     override suspend fun preload(subtype: Subtype) = withContext(Dispatchers.IO) {
+        // Asegurar que el DictionaryManager tenga las bases de datos cargadas
+        DictionaryManager.default().loadUserDictionariesIfNecessary()
+
         wordData.withLock { data ->
             if (data.isEmpty()) {
                 val externalFile = File(
@@ -222,13 +145,10 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
                 val jsonData = Json.decodeFromString(wordDataSerializer, rawData)
                 data.putAll(jsonData)
 
+                // Construir Trie base ordenado por frecuencia
                 data.entries
                     .sortedByDescending { it.value }
                     .forEach { baseTrie.insert(it.key, it.value) }
-
-                userDictionary.loadBaseWords(data.keys)
-                userDictionary.load()
-                userTrie = userDictionary.buildTrie()
             }
         }
     }
@@ -259,39 +179,32 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         val rawInput = content.composingText.trim()
         val inputText = rawInput.lowercase()
         val capMode = detectCapMode(rawInput.toString())
+        val locale = subtype.primaryLocale
 
-        // Sin texto: mostrar palabras frecuentes del usuario o del base
-        if (inputText.isBlank()) {
-            val defaults = userTrie.searchByPrefix("", maxCandidateCount).ifEmpty {
-                baseTrie.searchByPrefix("de", maxCandidateCount)
-            }
-            val reordered = if (defaults.size >= 2) listOf(defaults[1], defaults[0]) + defaults.drop(2) else defaults
-            return reordered.map { (word, freq) ->
-                WordSuggestionCandidate(
-                    text = applyCapMode(word, capMode),
-                    confidence = freq / 255.0,
-                    isEligibleForAutoCommit = false,
-                    isEligibleForUserRemoval = false,
-                    sourceProvider = this@LatinLanguageProvider,
-                )
-            }
+        if (inputText.isBlank()) return emptyList()
+
+        // 1. Buscar en diccionario de usuario nativo (FlorisBoard + Sistema)
+        val userMatches = withContext(Dispatchers.IO) {
+            DictionaryManager.default().queryUserDictionary(inputText, locale)
         }
 
-        val userMatches = userTrie.searchByPrefix(inputText, maxCandidateCount)
+        // 2. Buscar en diccionario base (Trie)
         val baseMatches = baseTrie.searchByPrefix(inputText, maxCandidateCount)
 
+        // 3. Combinar: usuario tiene prioridad, sin duplicados
         val seen = mutableSetOf<String>()
         val combined = mutableListOf<Pair<String, Int>>()
 
-        for ((word, freq) in userMatches) {
-            if (seen.add(word)) combined.add(word to freq)
+        for (candidate in userMatches) {
+            val word = candidate.text.toString()
+            if (seen.add(word)) combined.add(word to (candidate.confidence * 255).toInt())
         }
         for ((word, freq) in baseMatches) {
             if (seen.add(word)) combined.add(word to freq)
             if (combined.size >= maxCandidateCount) break
         }
 
-        // Sin sugerencias: mostrar la palabra actual tal cual
+        // 4. Sin sugerencias: mostrar palabra actual tal cual
         if (combined.isEmpty()) {
             return listOf(
                 WordSuggestionCandidate(
@@ -304,21 +217,21 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             )
         }
 
-        // Reordenar: centro=1, izquierda=2, derecha=3
+        // 5. Reordenar: centro=1, izquierda=2, derecha=3
         val top = combined.take(maxCandidateCount)
         val reordered = if (top.size >= 2) listOf(top[1], top[0]) + top.drop(2) else top
 
-        // Palabra desconocida al centro si no hay match exacto
+        // 6. Palabra desconocida al centro si no hay match exacto
         val hasExactMatch = reordered.any { it.first == inputText }
         val finalList = if (!hasExactMatch && reordered.isNotEmpty()) {
-            val unknown = inputText to 0
-            listOf(reordered[0], unknown) + reordered.drop(1)
+            listOf(reordered[0], inputText to 0) + reordered.drop(1)
         } else {
             reordered
         }
 
         return finalList.take(maxCandidateCount).map { (word, freq) ->
-            val isUserWord = userDictionary.getFrequency(word.trim().lowercase()) > 0
+            // Palabras del diccionario de usuario son removibles
+            val isUserWord = userMatches.any { it.text.toString() == word }
             WordSuggestionCandidate(
                 text = applyCapMode(word, capMode),
                 confidence = freq / 255.0,
@@ -330,10 +243,27 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     override suspend fun notifySuggestionAccepted(subtype: Subtype, candidate: SuggestionCandidate) {
-        val word = candidate.text.toString().lowercase()
+        val word = candidate.text.toString().lowercase().trim()
+        if (word.length < 2) return
         withContext(Dispatchers.IO) {
-            userDictionary.recordWord(word)
-            userTrie = userDictionary.buildTrie()
+            val dao = DictionaryManager.default().florisUserDictionaryDao() ?: return@withContext
+            val locale = subtype.primaryLocale.localeTag()
+            val existing = dao.queryExactFuzzyLocale(word, subtype.primaryLocale)
+            if (existing.isNotEmpty()) {
+                // Incrementar frecuencia existente, máximo 255
+                val entry = existing.first()
+                val newFreq = minOf(entry.freq + 10, FREQUENCY_MAX)
+                dao.update(entry.copy(freq = newFreq))
+            } else {
+                // Insertar palabra nueva con frecuencia por defecto
+                dao.insert(UserDictionaryEntry(
+                    id = 0,
+                    word = word,
+                    freq = FREQUENCY_DEFAULT,
+                    locale = locale,
+                    shortcut = null,
+                ))
+            }
         }
         flogDebug { "Word accepted and recorded: $word" }
     }
@@ -343,14 +273,17 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     override suspend fun removeSuggestion(subtype: Subtype, candidate: SuggestionCandidate): Boolean {
-        val word = candidate.text.toString().lowercase()
+        val word = candidate.text.toString().lowercase().trim()
         return withContext(Dispatchers.IO) {
-            val removed = userDictionary.removeWord(word)
-            if (removed) {
-                userTrie = userDictionary.buildTrie()
+            val dao = DictionaryManager.default().florisUserDictionaryDao() ?: return@withContext false
+            val existing = dao.queryExactFuzzyLocale(word, subtype.primaryLocale)
+            if (existing.isNotEmpty()) {
+                dao.delete(existing.first())
                 flogDebug { "Word removed from user dict: $word" }
+                true
+            } else {
+                false
             }
-            removed
         }
     }
 

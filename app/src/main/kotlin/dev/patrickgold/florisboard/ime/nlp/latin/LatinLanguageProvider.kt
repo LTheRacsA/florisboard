@@ -24,13 +24,11 @@ import dev.patrickgold.florisboard.ime.dictionary.FREQUENCY_DEFAULT
 import dev.patrickgold.florisboard.ime.dictionary.FREQUENCY_MAX
 import dev.patrickgold.florisboard.ime.dictionary.UserDictionaryEntry
 import dev.patrickgold.florisboard.ime.editor.EditorContent
-import dev.patrickgold.florisboard.ime.input.InputShiftState
 import dev.patrickgold.florisboard.ime.nlp.SpellingProvider
 import dev.patrickgold.florisboard.ime.nlp.SpellingResult
 import dev.patrickgold.florisboard.ime.nlp.SuggestionCandidate
 import dev.patrickgold.florisboard.ime.nlp.SuggestionProvider
 import dev.patrickgold.florisboard.ime.nlp.WordSuggestionCandidate
-import dev.patrickgold.florisboard.keyboardManager
 import dev.patrickgold.florisboard.lib.devtools.flogDebug
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,19 +38,6 @@ import kotlinx.serialization.json.Json
 import org.florisboard.lib.android.readText
 import org.florisboard.lib.kotlin.guardedByLock
 import java.io.File
-
-// ──────────────────────────────────────────────
-// Capitalización
-// ──────────────────────────────────────────────
-private enum class CapMode { NONE, FIRST, ALL }
-
-private fun applyCapMode(word: String, mode: CapMode): String {
-    return when (mode) {
-        CapMode.NONE -> word
-        CapMode.FIRST -> word.replaceFirstChar { it.uppercase() }
-        CapMode.ALL -> word.uppercase()
-    }
-}
 
 // ──────────────────────────────────────────────
 // Trie — usado solo para el diccionario base
@@ -109,7 +94,6 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     private val appContext by context.appContext()
-    private val keyboardManager by context.keyboardManager()
     private val wordData = guardedByLock { mutableMapOf<String, Int>() }
     private val wordDataSerializer = MapSerializer(String.serializer(), Int.serializer())
     private val baseTrie = Trie()
@@ -165,8 +149,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         allowPossiblyOffensive: Boolean,
         isPrivateSession: Boolean,
     ): List<SuggestionCandidate> {
-        val rawInput = content.composingText.trim()
-        val inputText = rawInput.lowercase()
+        val inputText = content.composingText.trim().lowercase()
         val locale = subtype.primaryLocale
 
         if (inputText.isBlank()) return emptyList()
@@ -207,7 +190,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         if (combined.isEmpty()) {
             return listOf(
                 WordSuggestionCandidate(
-                    text = applyCapMode(inputText, capMode),
+                    text = inputText,
                     confidence = 0.0,
                     isEligibleForAutoCommit = false,
                     isEligibleForUserRemoval = false,
@@ -230,7 +213,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
 
         return finalList.take(maxCandidateCount).map { (word, freq) ->
             WordSuggestionCandidate(
-                text = applyCapMode(word, capMode),
+                text = word,
                 confidence = freq / 255.0,
                 isEligibleForAutoCommit = false,
                 isEligibleForUserRemoval = false,

@@ -28,6 +28,7 @@ import dev.patrickgold.florisboard.ime.core.Subtype
 import dev.patrickgold.florisboard.ime.editor.EditorContent
 import dev.patrickgold.florisboard.ime.editor.EditorRange
 import dev.patrickgold.florisboard.ime.media.emoji.EmojiSuggestionProvider
+import dev.patrickgold.florisboard.ime.nlp.WordSuggestionCandidate
 import dev.patrickgold.florisboard.ime.nlp.han.HanShapeBasedLanguageProvider
 import dev.patrickgold.florisboard.ime.nlp.latin.LatinLanguageProvider
 import dev.patrickgold.florisboard.keyboardManager
@@ -224,7 +225,13 @@ class NlpManager(context: Context) {
                         maxCandidateCount = 8,
                         allowPossiblyOffensive = !prefs.suggestion.blockPossiblyOffensive.get(),
                         isPrivateSession = keyboardManager.activeState.isIncognitoMode,
-                    )
+                    ).map { candidate ->
+                        if (candidate is WordSuggestionCandidate) {
+                            candidate.copy(text = keyboardManager.fixCase(candidate.text.toString()))
+                        } else {
+                            candidate
+                        }
+                    }
                 }
             }
             internalSuggestionsGuard.withLock {

@@ -227,7 +227,17 @@ class NlpManager(context: Context) {
                         isPrivateSession = keyboardManager.activeState.isIncognitoMode,
                     ).map { candidate ->
                         if (candidate is WordSuggestionCandidate) {
-                            candidate.copy(text = keyboardManager.fixCase(candidate.text.toString()))
+                            val fixed = keyboardManager.fixCase(candidate.text.toString())
+                            // Si fixCase no cambió nada (UNSHIFTED) pero el texto empieza con mayúscula,
+                            // respetar esa capitalización inicial del usuario
+                            val finalText = if (fixed == candidate.text.toString().lowercase() &&
+                                content.composingText.isNotEmpty() &&
+                                content.composingText.first().isUpperCase()) {
+                                fixed.replaceFirstChar { it.uppercase() }
+                            } else {
+                                fixed
+                            }
+                            candidate.copy(text = finalText)
                         } else {
                             candidate
                         }

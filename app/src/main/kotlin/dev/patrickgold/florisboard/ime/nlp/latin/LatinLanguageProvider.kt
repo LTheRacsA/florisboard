@@ -96,8 +96,11 @@ private fun computeFinalScore(
 ): Double {
     val wordLen = word.length
     val completitud = prefixLen.toDouble() / wordLen.toDouble()
-    val penalizacion = (wordLen - prefixLen).toDouble() * (1.0 / prefixLen.toDouble())
-    return (userScore * 2.0) + baseScore.toDouble() + (completitud * 50.0) - penalizacion
+    // Penalización más agresiva para palabras largas con prefijos cortos
+    val penalizacion = (wordLen - prefixLen).toDouble() * (3.0 / prefixLen.toDouble())
+    // Penalización extra si la palabra es más del doble del prefijo
+    val extraPenalty = if (wordLen > prefixLen * 2) (wordLen - prefixLen * 2) * 5.0 else 0.0
+    return (userScore * 2.0) + baseScore.toDouble() + (completitud * 50.0) - penalizacion - extraPenalty
 }
 
 // ──────────────────────────────────────────────

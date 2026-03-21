@@ -86,17 +86,34 @@ private class Trie {
 }
 
 // ──────────────────────────────────────────────
+// Ranking — score final con penalización por longitud
+// ──────────────────────────────────────────────
+private fun computeFinalScore(
+    word: String,
+    prefixLen: Int,
+    userScore: Int,
+    baseScore: Int,
+): Double {
+    val wordLen = word.length
+    val completitud = prefixLen.toDouble() / wordLen.toDouble()
+    val penalizacion = (wordLen - prefixLen).toDouble() * (1.0 / prefixLen.toDouble())
+    return (userScore * 2.0) + baseScore.toDouble() + (completitud * 50.0) - penalizacion
+}
+
+// ──────────────────────────────────────────────
 // LatinLanguageProvider
 // ──────────────────────────────────────────────
 class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProvider {
     companion object {
         const val ProviderId = "org.florisboard.nlp.providers.latin"
+        private const val DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000L // 24 horas
     }
 
     private val appContext by context.appContext()
     private val wordData = guardedByLock { mutableMapOf<String, Int>() }
     private val wordDataSerializer = MapSerializer(String.serializer(), Int.serializer())
     private val baseTrie = Trie()
+    private val decayTimestampFile by lazy { File(appContext.filesDir, "decay_timestamp.txt") }
 
     override val providerId = ProviderId
 
@@ -104,6 +121,9 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
 
     override suspend fun preload(subtype: Subtype) = withContext(Dispatchers.IO) {
         DictionaryManager.default().loadUserDictionariesIfNecessary()
+
+        // Aplicar decay diario si han pasado 24h
+        applyDecayIfNeeded()
 
         wordData.withLock { data ->
             if (data.isEmpty()) {
@@ -124,6 +144,32 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
                     .forEach { baseTrie.insert(it.key, it.value) }
             }
         }
+    }
+
+    private fun applyDecayIfNeeded() {
+        val now = System.currentTimeMillis()
+        val lastDecay = if (decayTimestampFile.exists()) {
+            decayTimestampFile.readText().toLongOrNull() ?: 0L
+        } else 0L
+
+        if (now - lastDecay < DECAY_INTERVAL_MS) return
+
+        val dao = DictionaryManager.default().florisUserDictionaryDao() ?: return
+        val entries = dao.queryAll()
+        for (entry in entries) {
+            val decayFactor = when {
+                entry.freq > 200 -> 0.9995
+                entry.freq > 100 -> 0.999
+                else -> 0.995
+            }
+            val newFreq = maxOf(1, (entry.freq * decayFactor).toInt())
+            if (newFreq != entry.freq) {
+                dao.update(entry.copy(freq = newFreq))
+            }
+        }
+
+        decayTimestampFile.writeText(now.toString())
+        flogDebug { "Decay applied to ${entries.size} user dictionary entries" }
     }
 
     override suspend fun spell(
@@ -154,40 +200,50 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
 
         if (inputText.isBlank()) return emptyList()
 
-        // Leer estado de mayúsculas directamente del teclado
-        val capMode = when (keyboardManager.activeState.inputShiftState) {
-            InputShiftState.CAPS_LOCK -> CapMode.ALL
-            InputShiftState.SHIFTED_MANUAL,
-            InputShiftState.SHIFTED_AUTOMATIC -> CapMode.FIRST
-            else -> {
-            if (rawInput.isNotEmpty() && rawInput.first().isUpperCase()) CapMode.FIRST
-            else CapMode.NONE
-        }
-        }
+        val prefixLen = inputText.length
 
         // 1. Buscar en diccionario de usuario nativo
         val userMatches = withContext(Dispatchers.IO) {
             DictionaryManager.default().queryUserDictionary(inputText, locale)
         }
 
-        // 2. Buscar en diccionario base (Trie)
-        val baseMatches = baseTrie.searchByPrefix(inputText, maxCandidateCount)
+        // 2. Buscar en diccionario base (Trie) — pedir más resultados para mejor ranking
+        val baseMatches = baseTrie.searchByPrefix(inputText, maxCandidateCount * 3)
 
-        // 3. Combinar: usuario tiene prioridad, sin duplicados
+        // 3. Construir mapa de scores de usuario
+        val userScoreMap = mutableMapOf<String, Int>()
+        for (candidate in userMatches) {
+            userScoreMap[candidate.text.toString()] = (candidate.confidence * 255).toInt()
+        }
+
+        // 4. Combinar con ranking final
         val seen = mutableSetOf<String>()
-        val combined = mutableListOf<Pair<String, Int>>()
+        val scored = mutableListOf<Pair<String, Double>>()
 
+        // Palabras de usuario primero
         for (candidate in userMatches) {
             val word = candidate.text.toString()
-            if (seen.add(word)) combined.add(word to (candidate.confidence * 255).toInt())
-        }
-        for ((word, freq) in baseMatches) {
-            if (seen.add(word)) combined.add(word to freq)
-            if (combined.size >= maxCandidateCount) break
+            if (seen.add(word)) {
+                val userScore = (candidate.confidence * 255).toInt()
+                val finalScore = computeFinalScore(word, prefixLen, userScore, 0)
+                scored.add(word to finalScore)
+            }
         }
 
-        // 4. Sin sugerencias: mostrar palabra actual tal cual
-        if (combined.isEmpty()) {
+        // Palabras del diccionario base
+        for ((word, freq) in baseMatches) {
+            if (seen.add(word)) {
+                val userScore = userScoreMap.getOrDefault(word, 0)
+                val finalScore = computeFinalScore(word, prefixLen, userScore, freq)
+                scored.add(word to finalScore)
+            }
+        }
+
+        // 5. Ordenar por score final descendente
+        val sorted = scored.sortedByDescending { it.second }
+
+        // 6. Sin sugerencias: mostrar palabra actual tal cual
+        if (sorted.isEmpty()) {
             return listOf(
                 WordSuggestionCandidate(
                     text = inputText,
@@ -199,22 +255,22 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             )
         }
 
-        // 5. Reordenar: centro=1, izquierda=2, derecha=3
-        val top = combined.take(maxCandidateCount)
+        // 7. Reordenar: centro=1, izquierda=2, derecha=3
+        val top = sorted.take(maxCandidateCount)
         val reordered = if (top.size >= 2) listOf(top[1], top[0]) + top.drop(2) else top
 
-        // 6. Palabra desconocida al centro si no hay match exacto
+        // 8. Palabra desconocida al centro si no hay match exacto
         val hasExactMatch = reordered.any { it.first == inputText }
         val finalList = if (!hasExactMatch && reordered.isNotEmpty()) {
-            listOf(reordered[0], inputText to 0) + reordered.drop(1)
+            listOf(reordered[0], inputText to 0.0) + reordered.drop(1)
         } else {
             reordered
         }
 
-        return finalList.take(maxCandidateCount).map { (word, freq) ->
+        return finalList.take(maxCandidateCount).map { (word, score) ->
             WordSuggestionCandidate(
                 text = word,
-                confidence = freq / 255.0,
+                confidence = (score / 305.0).coerceIn(0.0, 1.0),
                 isEligibleForAutoCommit = false,
                 isEligibleForUserRemoval = false,
                 sourceProvider = this@LatinLanguageProvider,
@@ -231,7 +287,9 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             val existing = dao.queryExactFuzzyLocale(word, subtype.primaryLocale)
             if (existing.isNotEmpty()) {
                 val entry = existing.first()
-                val newFreq = minOf(entry.freq + 10, FREQUENCY_MAX)
+                // Incremento dinámico: sube rápido cuando es bajo, lento cuando es alto
+                val increment = maxOf(1, (10 * (1.0 - entry.freq / 255.0)).toInt())
+                val newFreq = minOf(entry.freq + increment, FREQUENCY_MAX)
                 dao.update(entry.copy(freq = newFreq))
             } else {
                 dao.insert(UserDictionaryEntry(

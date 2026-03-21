@@ -256,7 +256,7 @@ class EditorInstance(context: Context) : AbstractEditorInstance(context) {
         if (activeInfo.isRawInputEditor) {
             val ic = currentInputConnection() ?: return false
             val contentText = activeContent.textBeforeSelection
-            val lastWord = contentText.trimEnd().split(Regex("\s+")).lastOrNull() ?: ""
+            val lastWord = contentText.trimEnd().split(Regex("\\s+")).lastOrNull() ?: ""
             if (lastWord.isNotEmpty()) {
                 ic.deleteSurroundingText(lastWord.length, 0)
             }

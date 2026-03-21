@@ -310,10 +310,16 @@ class NlpManager(context: Context) {
                         }
                     }
 
-                    // Obtener historial del clipboard (hasta 3 elementos)
+                    // Obtener historial del clipboard con TTL de 60 segundos
+                    val now = System.currentTimeMillis()
+                    val clipTTL = 60_000L
                     val clipHistory = clipboardManager.historyFlow.value
                     val validClips = (clipHistory.pinned + clipHistory.recent)
-                        .filter { !it.text.isNullOrBlank() && !it.isSensitive }
+                        .filter {
+                            !it.text.isNullOrBlank() &&
+                            !it.isSensitive &&
+                            (now - it.creationTimestampMs) < clipTTL
+                        }
                         .take(3)
 
                     if (!isTyping && validClips.isNotEmpty()) {
@@ -347,6 +353,13 @@ class NlpManager(context: Context) {
                                 sourceProvider = clipboardSuggestionProvider,
                                 context = clipboardSuggestionProvider.context,
                             ))
+                        }
+                    } else if (!isTyping && validClips.isEmpty()) {
+                        // Campo vacío sin clips recientes → palabras frecuentes
+                        buildList {
+                            internalSuggestionsGuard.withLock {
+                                addAll(internalSuggestions.second.take(3))
+                            }
                         }
                     } else {
                         // Solo texto

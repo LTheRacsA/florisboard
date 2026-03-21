@@ -251,7 +251,17 @@ class EditorInstance(context: Context) : AbstractEditorInstance(context) {
      */
     fun commitCompletion(candidate: SuggestionCandidate): Boolean {
         val text = candidate.text.toString()
-        if (text.isEmpty() || activeInfo.isRawInputEditor) return false
+        if (text.isEmpty()) return false
+        // En campos sin composing (raw editors), borrar palabra actual e insertar sugerencia
+        if (activeInfo.isRawInputEditor) {
+            val ic = currentInputConnection() ?: return false
+            val contentText = activeContent.textBeforeSelection
+            val lastWord = contentText.trimEnd().split(Regex("\s+")).lastOrNull() ?: ""
+            if (lastWord.isNotEmpty()) {
+                ic.deleteSurroundingText(lastWord.length, 0)
+            }
+            return ic.commitText(text, 1)
+        }
         val content = activeContent
         return if (content.composing.isValid) {
             phantomSpace.setActive(showComposingRegion = false, candidate = candidate)

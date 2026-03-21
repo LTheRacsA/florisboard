@@ -217,7 +217,13 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         allowPossiblyOffensive: Boolean,
         isPrivateSession: Boolean,
     ): List<SuggestionCandidate> {
-        val inputText = content.composingText.trim().lowercase()
+        // En campos sin composing (TYPE_NULL), usar la última palabra del texto antes del cursor
+        val rawComposing = content.composingText.trim()
+        val inputText = if (rawComposing.isNotBlank()) {
+            rawComposing.lowercase()
+        } else {
+            content.textBeforeSelection.trimEnd().split(Regex("\\s+")).lastOrNull()?.lowercase() ?: ""
+        }
         val locale = subtype.primaryLocale
 
         if (inputText.isBlank()) return emptyList()

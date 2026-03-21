@@ -30,6 +30,13 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.florisboard.lib.kotlin.collectLatestIn
 
+import dev.patrickgold.florisboard.ime.core.SubtypeNlpProviderMap
+import dev.patrickgold.florisboard.ime.keyboard.extCoreComposer
+import dev.patrickgold.florisboard.ime.keyboard.extCoreCurrencySet
+import dev.patrickgold.florisboard.ime.keyboard.extCoreLayout
+import dev.patrickgold.florisboard.ime.keyboard.extCorePopupMapping
+import dev.patrickgold.florisboard.ime.keyboard.extCorePunctuationRule
+
 val SubtypeJsonConfig = Json {
     encodeDefaults = true
     ignoreUnknownKeys = true
@@ -57,18 +64,34 @@ class SubtypeManager(context: Context) {
         get() = activeSubtypeFlow.value
         private set(v) { activeSubtypeFlow.value = v }
 
-    init {
-        prefs.localization.subtypes.asFlow().collectLatestIn(scope) { listRaw ->
-            flogDebug { listRaw }
-            val list = if (listRaw.isNotBlank()) {
-                SubtypeJsonConfig.decodeFromString<List<Subtype>>(listRaw)
-            } else {
-                emptyList()
-            }
-            subtypes = list
-            evaluateActiveSubtype(list)
-        }
-    }
+	init {
+	    prefs.localization.subtypes.asFlow().collectLatestIn(scope) { listRaw ->
+	        flogDebug { listRaw }
+	        val list = if (listRaw.isNotBlank()) {
+	            SubtypeJsonConfig.decodeFromString<List<Subtype>>(listRaw)
+	        } else {
+	            emptyList()
+	        }
+	        // Si no hay subtypes configurados, crear uno en español por defecto
+	        if (list.isEmpty()) {
+	            val defaultSpanish = Subtype(
+	                id = 1758389315057L,
+	                primaryLocale = FlorisLocale.from("es", "419"),
+	                secondaryLocales = emptyList(),
+	                nlpProviders = SubtypeNlpProviderMap(),
+	                composer = extCoreComposer("appender"),
+	                currencySet = extCoreCurrencySet("dollar"),
+	                punctuationRule = extCorePunctuationRule("default"),
+	                popupMapping = extCorePopupMapping("es"),
+	                layoutMap = SubtypeLayoutMap(characters = extCoreLayout("spanish")),
+	            )
+	            persistNewSubtypeList(listOf(defaultSpanish))
+	            return@collectLatestIn
+	        }
+	        subtypes = list
+	        evaluateActiveSubtype(list)
+	    }
+	}
 
     private fun persistNewSubtypeList(list: List<Subtype>) = scope.launch {
         val listRaw = SubtypeJsonConfig.encodeToString(list)

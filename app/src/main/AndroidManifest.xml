@@ -12,6 +12,7 @@
           ship with an IME or Spell Check service. This is used to guide the user
           in the Settings Ui why FlorisBoard may not be working.
      -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <queries>
         <intent>
             <action android:name="android.view.InputMethod"/>

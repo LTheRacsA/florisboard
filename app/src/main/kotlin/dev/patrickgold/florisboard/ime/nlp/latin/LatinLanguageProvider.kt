@@ -36,6 +36,30 @@ import org.florisboard.lib.kotlin.guardedByLock
 import java.io.File
 
 // ──────────────────────────────────────────────
+// Capitalización
+// ──────────────────────────────────────────────
+private enum class CapMode { NONE, FIRST, ALL }
+
+private fun applyCapMode(word: String, mode: CapMode): String {
+    return when (mode) {
+        CapMode.NONE -> word
+        CapMode.FIRST -> word.replaceFirstChar { it.uppercase() }
+        CapMode.ALL -> word.uppercase()
+    }
+}
+
+private fun detectCapMode(composingText: String): CapMode {
+    if (composingText.isBlank()) return CapMode.NONE
+    val allUpper = composingText.all { !it.isLetter() || it.isUpperCase() }
+    val firstUpper = composingText.first().isUpperCase()
+    return when {
+        allUpper && composingText.length > 1 -> CapMode.ALL
+        firstUpper -> CapMode.FIRST
+        else -> CapMode.NONE
+    }
+}
+
+// ──────────────────────────────────────────────
 // Trie
 // ──────────────────────────────────────────────
 private class TrieNode {
@@ -143,6 +167,10 @@ private class UserDictionary(private val context: Context) {
         save()
     }
 
+    fun getFrequency(word: String): Int {
+        return wordFreqs.getOrDefault(word, 0)
+    }
+
     fun removeWord(word: String): Boolean {
         val normalized = word.trim().lowercase()
         if (!wordFreqs.containsKey(normalized)) return false
@@ -228,18 +256,19 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         allowPossiblyOffensive: Boolean,
         isPrivateSession: Boolean,
     ): List<SuggestionCandidate> {
-        val inputText = content.composingText.trim().lowercase()
+        val rawInput = content.composingText.trim()
+        val inputText = rawInput.lowercase()
+        val capMode = detectCapMode(rawInput.toString())
 
         // Sin texto: mostrar palabras frecuentes del usuario o del base
         if (inputText.isBlank()) {
             val defaults = userTrie.searchByPrefix("", maxCandidateCount).ifEmpty {
                 baseTrie.searchByPrefix("de", maxCandidateCount)
             }
-            val top = defaults
-            val reordered = if (top.size >= 2) listOf(top[1], top[0]) + top.drop(2) else top
+            val reordered = if (defaults.size >= 2) listOf(defaults[1], defaults[0]) + defaults.drop(2) else defaults
             return reordered.map { (word, freq) ->
                 WordSuggestionCandidate(
-                    text = word,
+                    text = applyCapMode(word, capMode),
                     confidence = freq / 255.0,
                     isEligibleForAutoCommit = false,
                     isEligibleForUserRemoval = false,
@@ -262,11 +291,11 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             if (combined.size >= maxCandidateCount) break
         }
 
-        // Si no hay ninguna sugerencia, mostrar la palabra actual como candidato
+        // Sin sugerencias: mostrar la palabra actual tal cual
         if (combined.isEmpty()) {
             return listOf(
                 WordSuggestionCandidate(
-                    text = inputText,
+                    text = applyCapMode(inputText, capMode),
                     confidence = 0.0,
                     isEligibleForAutoCommit = false,
                     isEligibleForUserRemoval = false,
@@ -279,7 +308,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         val top = combined.take(maxCandidateCount)
         val reordered = if (top.size >= 2) listOf(top[1], top[0]) + top.drop(2) else top
 
-        // La palabra desconocida va al centro si no hay match exacto
+        // Palabra desconocida al centro si no hay match exacto
         val hasExactMatch = reordered.any { it.first == inputText }
         val finalList = if (!hasExactMatch && reordered.isNotEmpty()) {
             val unknown = inputText to 0
@@ -289,9 +318,9 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         }
 
         return finalList.take(maxCandidateCount).map { (word, freq) ->
-            val isUserWord = userDictionary.getFrequency(word) > 0
+            val isUserWord = userDictionary.getFrequency(word.trim().lowercase()) > 0
             WordSuggestionCandidate(
-                text = word,
+                text = applyCapMode(word, capMode),
                 confidence = freq / 255.0,
                 isEligibleForAutoCommit = false,
                 isEligibleForUserRemoval = isUserWord,
@@ -301,7 +330,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     override suspend fun notifySuggestionAccepted(subtype: Subtype, candidate: SuggestionCandidate) {
-        val word = candidate.text.toString()
+        val word = candidate.text.toString().lowercase()
         withContext(Dispatchers.IO) {
             userDictionary.recordWord(word)
             userTrie = userDictionary.buildTrie()
@@ -314,7 +343,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     override suspend fun removeSuggestion(subtype: Subtype, candidate: SuggestionCandidate): Boolean {
-        val word = candidate.text.toString()
+        val word = candidate.text.toString().lowercase()
         return withContext(Dispatchers.IO) {
             val removed = userDictionary.removeWord(word)
             if (removed) {

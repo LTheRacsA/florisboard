@@ -9,4 +9,7 @@
     <include
         domain="database"
         path="floris_user_dictionary"/>
+    <include
+        domain="file"
+        path="user_dict.json"/>
 </full-backup-content>

@@ -85,12 +85,8 @@ private class Trie {
 // UserDictionary: aprendizaje personalizado
 // ──────────────────────────────────────────────
 private class UserDictionary(context: Context) {
-    data class Entry(val freq: Int, val validated: Boolean)
-
-    private val file = File(
-        android.os.Environment.getExternalStorageDirectory(),
-        "FlorisBoard/dict/user_dict.json"
-    )
+    data class Entry(val freq: Int, val validated: Boolean
+    private val file = File(context.filesDir, "user_dict.json")
     private val entries = mutableMapOf<String, Entry>()
     private val baseWords = mutableSetOf<String>()
     private val json = Json { ignoreUnknownKeys = true }

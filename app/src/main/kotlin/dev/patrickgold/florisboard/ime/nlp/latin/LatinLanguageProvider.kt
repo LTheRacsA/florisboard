@@ -165,7 +165,8 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         allowPossiblyOffensive: Boolean,
         isPrivateSession: Boolean,
     ): List<SuggestionCandidate> {
-        val inputText = content.composingText.trim().lowercase()
+        val rawInput = content.composingText.trim()
+        val inputText = rawInput.lowercase()
         val locale = subtype.primaryLocale
 
         if (inputText.isBlank()) return emptyList()
@@ -175,7 +176,10 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             InputShiftState.CAPS_LOCK -> CapMode.ALL
             InputShiftState.SHIFTED_MANUAL,
             InputShiftState.SHIFTED_AUTOMATIC -> CapMode.FIRST
-            else -> CapMode.NONE
+            else -> {
+            if (rawInput.isNotEmpty() && rawInput.first().isUpperCase()) CapMode.FIRST
+            else CapMode.NONE
+        }
         }
 
         // 1. Buscar en diccionario de usuario nativo

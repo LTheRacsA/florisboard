@@ -300,37 +300,45 @@ class NlpManager(context: Context) {
         runBlocking {
             val candidates = when {
                 isSuggestionOn() -> {
-                    // Obtener sugerencias de texto (slots centro e izquierda)
+                    val contentText = editorInstance.activeContent.text
+                    val isTyping = contentText.isNotBlank()
+
+                    // Obtener sugerencias de texto
                     val textCandidates = buildList {
                         internalSuggestionsGuard.withLock {
                             addAll(internalSuggestions.second)
                         }
                     }
 
-                    // Obtener sugerencia de portapapeles (slot derecho)
-                    val clipboardCandidates = clipboardSuggestionProvider.suggest(
-                        subtype = Subtype.DEFAULT,
-                        content = editorInstance.activeContent,
-                        maxCandidateCount = 1,
-                        allowPossiblyOffensive = !prefs.suggestion.blockPossiblyOffensive.get(),
-                        isPrivateSession = keyboardManager.activeState.isIncognitoMode,
-                    )
+                    // Obtener historial del clipboard (hasta 3 elementos)
+                    val clipHistory = clipboardManager.history.pinned + clipboardManager.history.recent
+                    val validClips = clipHistory
+                        .filter { !it.text.isNullOrBlank() && !it.isSensitive }
+                        .take(3)
 
-                    when {
-                        // Si no hay texto escrito: mostrar clipboard en centro
-                        textCandidates.isEmpty() && clipboardCandidates.isNotEmpty() -> {
-                            clipboardCandidates
+                    if (!isTyping && validClips.isNotEmpty()) {
+                        // Campo vacío: modo clipboard
+                        // Centro = clip#1, Izquierda = clip#2, Derecha = clip#3
+                        val primary = ClipboardSuggestionCandidate(validClips[0], sourceProvider = clipboardSuggestionProvider, context = context)
+                        val secondary = if (validClips.size > 1) ClipboardSuggestionCandidate(validClips[1], sourceProvider = clipboardSuggestionProvider, context = context) else null
+                        val tertiary = if (validClips.size > 2) ClipboardSuggestionCandidate(validClips[2], sourceProvider = clipboardSuggestionProvider, context = context) else null
+                        buildList {
+                            if (secondary != null) add(secondary)
+                            add(primary)
+                            if (tertiary != null) add(tertiary)
                         }
-                        // Híbrido: texto en centro+izquierda, clipboard en derecha
-                        textCandidates.isNotEmpty() && clipboardCandidates.isNotEmpty() -> {
-                            val textSlots = textCandidates.take(2)
-                            buildList {
-                                addAll(textSlots)
-                                add(clipboardCandidates.first())
-                            }
+                    } else if (isTyping && validClips.isNotEmpty() && textCandidates.isNotEmpty()) {
+                        // Campo con texto: modo híbrido
+                        // Izquierda = texto#2, Centro = texto#1, Derecha = clip#1
+                        val clipPrimary = ClipboardSuggestionCandidate(validClips[0], sourceProvider = clipboardSuggestionProvider, context = context)
+                        val textSlots = textCandidates.take(2)
+                        buildList {
+                            addAll(textSlots)
+                            add(clipPrimary)
                         }
+                    } else {
                         // Solo texto
-                        else -> textCandidates
+                        textCandidates
                     }
                 }
                 else -> emptyList()

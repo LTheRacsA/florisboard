@@ -79,7 +79,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
     inner class Clipboard {
         val useInternalClipboard = boolean(
             key = "clipboard__use_internal_clipboard",
-            default = false,
+            default = true,
         )
         val syncToFloris = enum(
             key = "clipboard__sync_to_floris",
@@ -99,7 +99,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val historyEnabled = boolean(
             key = "clipboard__history_enabled",
-            default = false,
+            default = true,
         )
         val historyNumGridColumnsPortrait = int(
             key = "clipboard__history_num_grid_columns_portrait",
@@ -297,11 +297,11 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val swipeLeft = enum(
             key = "gestures__swipe_left",
-            default = SwipeAction.SWITCH_TO_NEXT_SUBTYPE,
+            default = SwipeAction.DELETE_WORD,
         )
         val swipeRight = enum(
             key = "gestures__swipe_right",
-            default = SwipeAction.SWITCH_TO_PREV_SUBTYPE,
+            default = SwipeAction.NO_ACTION,
         )
         val spaceBarSwipeUp = enum(
             key = "gestures__space_bar_swipe_up",
@@ -325,7 +325,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val deleteKeyLongPress = enum(
             key = "gestures__delete_key_long_press",
-            default = SwipeAction.DELETE_CHARACTER,
+            default = SwipeAction.DELETE_WORD,
         )
         val swipeDistanceThreshold = int(
             key = "gestures__swipe_distance_threshold",
@@ -369,7 +369,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
     inner class InputFeedback {
         val audioEnabled = boolean(
             key = "input_feedback__audio_enabled",
-            default = true,
+            default = false,
         )
         val audioActivationMode = enum(
             key = "input_feedback__audio_activation_mode",
@@ -410,7 +410,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val hapticVibrationMode = enum(
             key = "input_feedback__haptic_vibration_mode",
-            default = HapticVibrationMode.USE_VIBRATOR_DIRECTLY,
+            default = HapticVibrationMode.USE_HAPTIC_FEEDBACK_INTERFACE,
         )
         val hapticVibrationDuration = int(
             key = "input_feedback__haptic_vibration_duration",
@@ -499,7 +499,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val utilityKeyEnabled = boolean(
             key = "keyboard__utility_key_enabled",
-            default = true,
+            default = false,
         )
         val utilityKeyAction = enum(
             key = "keyboard__utility_key_action",
@@ -507,19 +507,19 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val spaceBarMode = enum(
             key = "keyboard__space_bar_display_mode",
-            default = SpaceBarMode.CURRENT_LANGUAGE,
+            default = SpaceBarMode.NOTHING,
         )
         val capitalizationBehavior = enum(
             key = "keyboard__capitalization_behavior",
-            default = CapitalizationBehavior.CAPSLOCK_BY_DOUBLE_TAP,
+            default = CapitalizationBehavior.CAPSLOCK_BY_CYCLE,
         )
         val fontSizeMultiplierPortrait = int(
             key = "keyboard__font_size_multiplier_portrait",
-            default = 100,
+            default = 80,
         )
         val fontSizeMultiplierLandscape = int(
             key = "keyboard__font_size_multiplier_landscape",
-            default = 100,
+            default = 80,
         )
         val landscapeInputUiMode = enum(
             key = "keyboard__landscape_input_ui_mode",
@@ -543,7 +543,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val longPressDelay = int(
             key = "keyboard__long_press_delay",
-            default = 300,
+            default = 160,
         )
         val spaceBarSwitchesToCharacters = boolean(
             key = "keyboard__space_bar_switches_to_characters",
@@ -593,7 +593,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
     inner class Other {
         val settingsTheme = enum(
             key = "other__settings_theme",
-            default = AppTheme.AUTO,
+            default = AppTheme.AUTO_AMOLED,
         )
         val accentColor = custom(
             key = "other__accent_color",
@@ -626,7 +626,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val layout = enum(
             key = "smartbar__layout",
-            default = SmartbarLayout.SUGGESTIONS_ACTIONS_SHARED,
+            default = SmartbarLayout.SUGGESTIONS_ACTIONS_EXTENDED,
         )
         val actionArrangement = custom(
             key = "smartbar__action_arrangement",
@@ -635,7 +635,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val flipToggles = boolean(
             key = "smartbar__flip_toggles",
-            default = false,
+            default = true,
         )
         val sharedActionsExpanded = boolean(
             key = "smartbar__shared_actions_expanded",
@@ -652,7 +652,7 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val extendedActionsExpanded = boolean(
             key = "smartbar__extended_actions_expanded",
-            default = false,
+            default = true,
         )
         val extendedActionsPlacement = enum(
             key = "smartbar__extended_actions_placement",
@@ -684,15 +684,15 @@ abstract class FlorisPreferenceModel : PreferenceModel() {
         )
         val enabled = boolean(
             key = "suggestion__enabled",
-            default = false,
+            default = true,
         )
         val displayMode = enum(
             key = "suggestion__display_mode",
-            default = CandidatesDisplayMode.DYNAMIC_SCROLLABLE,
+            default = CandidatesDisplayMode.CLASSIC,
         )
         val blockPossiblyOffensive = boolean(
             key = "suggestion__block_possibly_offensive",
-            default = true,
+            default = false,
         )
         val incognitoMode = enum(
             key = "suggestion__incognito_mode",

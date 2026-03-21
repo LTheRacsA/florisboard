@@ -40,6 +40,15 @@ import org.florisboard.lib.kotlin.guardedByLock
 import java.io.File
 
 // ──────────────────────────────────────────────
+// Normalización de tildes
+// ──────────────────────────────────────────────
+private fun normalize(s: String): String = s
+    .replace('á', 'a').replace('é', 'e').replace('í', 'i')
+    .replace('ó', 'o').replace('ú', 'u').replace('ü', 'u')
+    .replace('à', 'a').replace('è', 'e').replace('ì', 'i')
+    .replace('ò', 'o').replace('ù', 'u')
+
+// ──────────────────────────────────────────────
 // Trie — usado solo para el diccionario base
 // ──────────────────────────────────────────────
 private class TrieNode {
@@ -96,9 +105,7 @@ private fun computeFinalScore(
 ): Double {
     val wordLen = word.length
     val completitud = prefixLen.toDouble() / wordLen.toDouble()
-    // Penalización más agresiva para palabras largas con prefijos cortos
     val penalizacion = (wordLen - prefixLen).toDouble() * (3.0 / prefixLen.toDouble())
-    // Penalización extra si la palabra es más del doble del prefijo
     val extraPenalty = if (wordLen > prefixLen * 2) (wordLen - prefixLen * 2) * 5.0 else 0.0
     return (userScore * 2.0) + baseScore.toDouble() + (completitud * 50.0) - penalizacion - extraPenalty
 }
@@ -109,13 +116,17 @@ private fun computeFinalScore(
 class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProvider {
     companion object {
         const val ProviderId = "org.florisboard.nlp.providers.latin"
-        private const val DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000L // 24 horas
+        private const val DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000L
     }
 
     private val appContext by context.appContext()
     private val wordData = guardedByLock { mutableMapOf<String, Int>() }
     private val wordDataSerializer = MapSerializer(String.serializer(), Int.serializer())
     private val baseTrie = Trie()
+    // Trie normalizado (sin tildes) para búsqueda tolerante
+    private val normalizedTrie = Trie()
+    // Índice: forma normalizada -> lista de formas acentuadas con frecuencia
+    private val normalizedIndex = mutableMapOf<String, MutableList<Pair<String, Int>>>()
     private val decayTimestampFile by lazy { File(appContext.filesDir, "decay_timestamp.txt") }
 
     override val providerId = ProviderId
@@ -124,8 +135,6 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
 
     override suspend fun preload(subtype: Subtype) = withContext(Dispatchers.IO) {
         DictionaryManager.default().loadUserDictionariesIfNecessary()
-
-        // Aplicar decay diario si han pasado 24h
         applyDecayIfNeeded()
 
         wordData.withLock { data ->
@@ -144,7 +153,17 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
 
                 data.entries
                     .sortedByDescending { it.value }
-                    .forEach { baseTrie.insert(it.key, it.value) }
+                    .forEach { (word, freq) ->
+                        baseTrie.insert(word, freq)
+                        // Construir índice normalizado
+                        val normalized = normalize(word)
+                        if (normalized != word) {
+                            // Solo indexar palabras que tienen tilde
+                            normalizedTrie.insert(normalized, freq)
+                            normalizedIndex.getOrPut(normalized) { mutableListOf() }
+                                .add(word to freq)
+                        }
+                    }
             }
         }
     }
@@ -204,22 +223,32 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         if (inputText.isBlank()) return emptyList()
 
         val prefixLen = inputText.length
+        val normalizedInput = normalize(inputText)
 
         // 1. Buscar en diccionario de usuario nativo
         val userMatches = withContext(Dispatchers.IO) {
             DictionaryManager.default().queryUserDictionary(inputText, locale)
         }
 
-        // 2. Buscar en diccionario base (Trie) — pedir más resultados para mejor ranking
+        // 2. Buscar en diccionario base (Trie normal)
         val baseMatches = baseTrie.searchByPrefix(inputText, maxCandidateCount * 3)
 
-        // 3. Construir mapa de scores de usuario
+        // 3. Buscar en Trie normalizado si el input no tiene tildes
+        val normalizedMatches = if (normalizedInput == inputText) {
+            // Input sin tildes: buscar formas acentuadas
+            val normalizedResults = normalizedTrie.searchByPrefix(normalizedInput, maxCandidateCount * 2)
+            normalizedResults.flatMap { (normWord, _) ->
+                normalizedIndex[normWord] ?: emptyList()
+            }
+        } else emptyList()
+
+        // 4. Construir mapa de scores de usuario
         val userScoreMap = mutableMapOf<String, Int>()
         for (candidate in userMatches) {
             userScoreMap[candidate.text.toString()] = (candidate.confidence * 255).toInt()
         }
 
-        // 4. Combinar con ranking final
+        // 5. Combinar con ranking final
         val seen = mutableSetOf<String>()
         val scored = mutableListOf<Pair<String, Double>>()
 
@@ -242,10 +271,20 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             }
         }
 
-        // 5. Ordenar por score final descendente
+        // Palabras acentuadas del índice normalizado
+        for ((word, freq) in normalizedMatches) {
+            if (seen.add(word)) {
+                val userScore = userScoreMap.getOrDefault(word, 0)
+                // Bonus leve por ser forma acentuada correcta
+                val finalScore = computeFinalScore(word, prefixLen, userScore, freq) + 5.0
+                scored.add(word to finalScore)
+            }
+        }
+
+        // 6. Ordenar por score final descendente
         val sorted = scored.sortedByDescending { it.second }
 
-        // 6. Sin sugerencias: mostrar palabra actual tal cual
+        // 7. Sin sugerencias: mostrar palabra actual tal cual
         if (sorted.isEmpty()) {
             return listOf(
                 WordSuggestionCandidate(
@@ -258,11 +297,11 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             )
         }
 
-        // 7. Reordenar: centro=1, izquierda=2, derecha=3
+        // 8. Reordenar: centro=1, izquierda=2, derecha=3
         val top = sorted.take(maxCandidateCount)
         val reordered = if (top.size >= 2) listOf(top[1], top[0]) + top.drop(2) else top
 
-        // 8. Palabra desconocida al centro si no hay match exacto
+        // 9. Palabra desconocida al centro si no hay match exacto
         val hasExactMatch = reordered.any { it.first == inputText }
         val finalList = if (!hasExactMatch && reordered.isNotEmpty()) {
             listOf(reordered[0], inputText to 0.0) + reordered.drop(1)
@@ -290,7 +329,6 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             val existing = dao.queryExactFuzzyLocale(word, subtype.primaryLocale)
             if (existing.isNotEmpty()) {
                 val entry = existing.first()
-                // Incremento dinámico: sube rápido cuando es bajo, lento cuando es alto
                 val increment = maxOf(1, (10 * (1.0 - entry.freq / 255.0)).toInt())
                 val newFreq = minOf(entry.freq + increment, FREQUENCY_MAX)
                 dao.update(entry.copy(freq = newFreq))

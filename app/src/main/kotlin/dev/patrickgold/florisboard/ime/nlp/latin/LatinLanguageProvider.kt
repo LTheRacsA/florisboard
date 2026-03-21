@@ -20,16 +20,17 @@ import android.content.Context
 import dev.patrickgold.florisboard.appContext
 import dev.patrickgold.florisboard.ime.core.Subtype
 import dev.patrickgold.florisboard.ime.dictionary.DictionaryManager
-import dev.patrickgold.florisboard.ime.dictionary.UserDictionaryEntry
 import dev.patrickgold.florisboard.ime.dictionary.FREQUENCY_DEFAULT
 import dev.patrickgold.florisboard.ime.dictionary.FREQUENCY_MAX
+import dev.patrickgold.florisboard.ime.dictionary.UserDictionaryEntry
 import dev.patrickgold.florisboard.ime.editor.EditorContent
+import dev.patrickgold.florisboard.ime.input.InputShiftState
 import dev.patrickgold.florisboard.ime.nlp.SpellingProvider
 import dev.patrickgold.florisboard.ime.nlp.SpellingResult
 import dev.patrickgold.florisboard.ime.nlp.SuggestionCandidate
 import dev.patrickgold.florisboard.ime.nlp.SuggestionProvider
 import dev.patrickgold.florisboard.ime.nlp.WordSuggestionCandidate
-import dev.patrickgold.florisboard.lib.FlorisLocale
+import dev.patrickgold.florisboard.keyboardManager
 import dev.patrickgold.florisboard.lib.devtools.flogDebug
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -50,17 +51,6 @@ private fun applyCapMode(word: String, mode: CapMode): String {
         CapMode.NONE -> word
         CapMode.FIRST -> word.replaceFirstChar { it.uppercase() }
         CapMode.ALL -> word.uppercase()
-    }
-}
-
-private fun detectCapMode(composingText: String): CapMode {
-    if (composingText.isBlank()) return CapMode.NONE
-    val allUpper = composingText.all { !it.isLetter() || it.isUpperCase() }
-    val firstUpper = composingText.first().isUpperCase()
-    return when {
-        allUpper && composingText.length > 1 -> CapMode.ALL
-        firstUpper -> CapMode.FIRST
-        else -> CapMode.NONE
     }
 }
 
@@ -119,6 +109,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     }
 
     private val appContext by context.appContext()
+    private val keyboardManager by context.keyboardManager()
     private val wordData = guardedByLock { mutableMapOf<String, Int>() }
     private val wordDataSerializer = MapSerializer(String.serializer(), Int.serializer())
     private val baseTrie = Trie()
@@ -128,7 +119,6 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     override suspend fun create() {}
 
     override suspend fun preload(subtype: Subtype) = withContext(Dispatchers.IO) {
-        // Asegurar que el DictionaryManager tenga las bases de datos cargadas
         DictionaryManager.default().loadUserDictionariesIfNecessary()
 
         wordData.withLock { data ->
@@ -145,7 +135,6 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
                 val jsonData = Json.decodeFromString(wordDataSerializer, rawData)
                 data.putAll(jsonData)
 
-                // Construir Trie base ordenado por frecuencia
                 data.entries
                     .sortedByDescending { it.value }
                     .forEach { baseTrie.insert(it.key, it.value) }
@@ -176,14 +165,20 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         allowPossiblyOffensive: Boolean,
         isPrivateSession: Boolean,
     ): List<SuggestionCandidate> {
-        val rawInput = content.composingText.trim()
-        val inputText = rawInput.lowercase()
-        val capMode = detectCapMode(rawInput.toString())
+        val inputText = content.composingText.trim().lowercase()
         val locale = subtype.primaryLocale
 
         if (inputText.isBlank()) return emptyList()
 
-        // 1. Buscar en diccionario de usuario nativo (FlorisBoard + Sistema)
+        // Leer estado de mayúsculas directamente del teclado
+        val capMode = when (keyboardManager.activeState.inputShiftState) {
+            InputShiftState.CAPS_LOCK -> CapMode.ALL
+            InputShiftState.SHIFTED_MANUAL,
+            InputShiftState.SHIFTED_AUTOMATIC -> CapMode.FIRST
+            else -> CapMode.NONE
+        }
+
+        // 1. Buscar en diccionario de usuario nativo
         val userMatches = withContext(Dispatchers.IO) {
             DictionaryManager.default().queryUserDictionary(inputText, locale)
         }
@@ -230,13 +225,11 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
         }
 
         return finalList.take(maxCandidateCount).map { (word, freq) ->
-            // Palabras del diccionario de usuario son removibles
-            val isUserWord = userMatches.any { it.text.toString() == word }
             WordSuggestionCandidate(
                 text = applyCapMode(word, capMode),
                 confidence = freq / 255.0,
                 isEligibleForAutoCommit = false,
-                isEligibleForUserRemoval = isUserWord,
+                isEligibleForUserRemoval = false,
                 sourceProvider = this@LatinLanguageProvider,
             )
         }
@@ -250,12 +243,10 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
             val locale = subtype.primaryLocale.localeTag()
             val existing = dao.queryExactFuzzyLocale(word, subtype.primaryLocale)
             if (existing.isNotEmpty()) {
-                // Incrementar frecuencia existente, máximo 255
                 val entry = existing.first()
                 val newFreq = minOf(entry.freq + 10, FREQUENCY_MAX)
                 dao.update(entry.copy(freq = newFreq))
             } else {
-                // Insertar palabra nueva con frecuencia por defecto
                 dao.insert(UserDictionaryEntry(
                     id = 0,
                     word = word,

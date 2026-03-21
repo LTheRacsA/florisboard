@@ -103,6 +103,11 @@ class NlpManager(context: Context) {
         subtypeManager.activeSubtypeFlow.collectLatestIn(scope) { subtype ->
             preload(subtype)
         }
+        keyboardManager.activeState.collectLatestIn(scope) {
+            if (isSuggestionOn()) {
+                suggest(subtypeManager.activeSubtype, editorInstance.activeContent)
+            }
+        }
     }
 
     /**

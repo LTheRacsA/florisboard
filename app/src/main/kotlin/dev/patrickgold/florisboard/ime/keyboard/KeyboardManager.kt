@@ -554,6 +554,12 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
     private fun handleSpace(data: KeyData) {
         val candidate = nlpManager.getAutoCommitCandidate()
         candidate?.let { commitCandidate(it) }
+        // Guardar si la próxima palabra debe empezar con mayúscula
+        // El shift se reseteará después del espacio, así que lo capturamos aquí
+        val nextWordUpper = activeState.inputShiftState == InputShiftState.SHIFTED_MANUAL ||
+            activeState.inputShiftState == InputShiftState.SHIFTED_AUTOMATIC ||
+            activeState.inputShiftState == InputShiftState.CAPS_LOCK
+        nlpManager.setNextWordUpper(nextWordUpper)
         if (prefs.keyboard.spaceBarSwitchesToCharacters.get()) {
             when (activeState.keyboardMode) {
                 KeyboardMode.NUMERIC_ADVANCED,
@@ -814,10 +820,12 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                             val firstLetterIsUpper = composingBefore.isBlank() && (
                                 shiftStateNow == InputShiftState.SHIFTED_MANUAL ||
                                 shiftStateNow == InputShiftState.SHIFTED_AUTOMATIC ||
-                                shiftStateNow == InputShiftState.CAPS_LOCK
+                                shiftStateNow == InputShiftState.CAPS_LOCK ||
+                                nlpManager.nextWordUpper
                             )
                             if (composingBefore.isBlank()) {
                                 nlpManager.setFirstLetterUpper(firstLetterIsUpper)
+                                nlpManager.setNextWordUpper(false)
                             }
                             editorInstance.commitChar(text)
                         }

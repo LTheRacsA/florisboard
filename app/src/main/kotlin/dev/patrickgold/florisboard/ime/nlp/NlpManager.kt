@@ -65,6 +65,8 @@ class NlpManager(context: Context) {
     @Volatile private var userShiftOverrideActive = false
     // true cuando la primera letra de la palabra actual fue mayúscula
     @Volatile var firstLetterWasUpper = false
+    // true cuando la próxima palabra debe empezar con mayúscula (capturado al escribir espacio)
+    @Volatile private var nextWordUpper = false
     private val clipboardSuggestionProvider = ClipboardSuggestionProvider(context)
     private val emojiSuggestionProvider = EmojiSuggestionProvider(context)
     private val providers = guardedByLock {
@@ -216,6 +218,10 @@ class NlpManager(context: Context) {
 
     fun setFirstLetterUpper(value: Boolean) {
         firstLetterWasUpper = value
+    }
+
+    fun setNextWordUpper(value: Boolean) {
+        nextWordUpper = value
     }
 
     fun isSuggestionOn(): Boolean =

@@ -220,9 +220,6 @@ class NlpManager(context: Context) {
         firstLetterWasUpper = value
     }
 
-    fun setNextWordUpper(value: Boolean) {
-        nextWordUpper = value
-    }
 
     fun isSuggestionOn(): Boolean =
         prefs.suggestion.enabled.get()

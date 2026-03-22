@@ -247,29 +247,31 @@ class NlpManager(context: Context) {
                     ).map { candidate ->
                         if (candidate is WordSuggestionCandidate) {
                             val shiftState = keyboardManager.activeState.inputShiftState
-                            val fixed = keyboardManager.fixCase(candidate.text.toString())
+                            val word = candidate.text.toString()
                             val finalText = when {
-                                // Override activo: el teclado manda sobre todo
-                                userShiftOverrideActive -> fixed
-                                // SHIFTED_AUTOMATIC o UNSHIFTED sin override:
-                                // respetar inicial mayúscula del rawInput (autocap)
-                                // Leer composingText directo del editor para ver mayúsculas reales
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC -> {
-                                    fixed.replaceFirstChar { it.uppercase() }
-                                }
+                                // CAPS_LOCK: todo mayúsculas
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
+                                    word.uppercase()
+                                // SHIFTED_MANUAL: usuario pidió mayúscula — primera letra mayúscula
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ->
+                                    word.lowercase().replaceFirstChar { it.uppercase() }
+                                // SHIFTED_AUTOMATIC: autocap — primera letra mayúscula
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC ->
+                                    word.lowercase().replaceFirstChar { it.uppercase() }
+                                // UNSHIFTED + override activo: usuario bajó a minúscula intencionalmente
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
-                                !userShiftOverrideActive -> {
-                                    // Leer última palabra del texto real del editor
-                                    val rawText = editorInstance.activeContent.textBeforeSelection
-                                    val lastWord = rawText.trimEnd().split(Regex("\\s+")).lastOrNull() ?: ""
-                                    val rawComposing = editorInstance.activeContent.composingText.ifEmpty { lastWord }
+                                userShiftOverrideActive ->
+                                    word.lowercase()
+                                // UNSHIFTED sin override: respetar la palabra tal como está en el diccionario
+                                // Si el rawComposing tiene inicial mayúscula, respetarla
+                                else -> {
+                                    val rawComposing = editorInstance.activeContent.composingText
                                     if (rawComposing.isNotEmpty() && rawComposing.first().isUpperCase()) {
-                                        fixed.replaceFirstChar { it.uppercase() }
+                                        word.lowercase().replaceFirstChar { it.uppercase() }
                                     } else {
-                                        fixed
+                                        word.lowercase()
                                     }
                                 }
-                                else -> fixed
                             }
                             candidate.copy(text = finalText)
                         } else {

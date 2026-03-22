@@ -219,6 +219,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
     ): List<SuggestionCandidate> {
         // En campos sin composing (TYPE_NULL), usar la última palabra del texto antes del cursor
         val rawComposing = content.composingText.trim()
+        val inputStartsUpper = rawComposing.isNotEmpty() && rawComposing[0].isUpperCase()
         val inputText = if (rawComposing.isNotBlank()) {
             rawComposing.lowercase()
         } else {
@@ -317,7 +318,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
 
         return finalList.take(maxCandidateCount).map { (word, score) ->
             WordSuggestionCandidate(
-                text = word,
+                text = if (inputStartsUpper) word.replaceFirstChar { it.uppercase() } else word,
                 confidence = (score / 305.0).coerceIn(0.0, 1.0),
                 isEligibleForAutoCommit = false,
                 isEligibleForUserRemoval = false,

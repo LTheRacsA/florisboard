@@ -243,7 +243,21 @@ class NlpManager(context: Context) {
                         allowPossiblyOffensive = !prefs.suggestion.blockPossiblyOffensive.get(),
                         isPrivateSession = keyboardManager.activeState.isIncognitoMode,
                     ).map { candidate ->
-                        candidate
+                        if (candidate is WordSuggestionCandidate) {
+                            val shiftState = keyboardManager.activeState.inputShiftState
+                            val word = candidate.text.toString()
+                            val finalText = when (shiftState) {
+                                dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
+                                    word.uppercase()
+                                dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL,
+                                dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC ->
+                                    word.replaceFirstChar { it.uppercase() }
+                                else -> word
+                            }
+                            candidate.copy(text = finalText)
+                        } else {
+                            candidate
+                        }
                     }
                 }
             }

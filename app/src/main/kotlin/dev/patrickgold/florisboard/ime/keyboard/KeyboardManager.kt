@@ -808,6 +808,13 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                                 nlpManager.getAutoCommitCandidate()?.let { commitCandidate(it) }
                             }
                             editorInstance.commitChar(text)
+                            // Detectar si la primera letra de la palabra es mayúscula
+                            val composingLen = editorInstance.activeContent.composingText.length
+                            if (composingLen == 1 && text.isNotEmpty() && text[0].isUpperCase()) {
+                                nlpManager.setFirstLetterUpper(true)
+                            } else if (composingLen == 0) {
+                                nlpManager.setFirstLetterUpper(false)
+                            }
                         }
                         else -> {
                             flogError(LogTopic.KEY_EVENTS) { "Received unknown key: $data" }

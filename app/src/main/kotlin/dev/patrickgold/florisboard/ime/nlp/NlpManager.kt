@@ -63,6 +63,8 @@ class NlpManager(context: Context) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     // true cuando el usuario presionó shift manualmente — override total de capitalización
     @Volatile private var userShiftOverrideActive = false
+    // true cuando la primera letra de la palabra actual fue mayúscula
+    @Volatile var firstLetterWasUpper = false
     private val clipboardSuggestionProvider = ClipboardSuggestionProvider(context)
     private val emojiSuggestionProvider = EmojiSuggestionProvider(context)
     private val providers = guardedByLock {
@@ -209,6 +211,11 @@ class NlpManager(context: Context) {
 
     fun resetShiftOverride() {
         userShiftOverrideActive = false
+        firstLetterWasUpper = false
+    }
+
+    fun setFirstLetterUpper(value: Boolean) {
+        firstLetterWasUpper = value
     }
 
     fun isSuggestionOn(): Boolean =
@@ -261,10 +268,10 @@ class NlpManager(context: Context) {
                                 // Cursor en posición de autocap (inicio de frase, etc.)
                                 capsMode != dev.patrickgold.florisboard.ime.editor.InputAttributes.CapsMode.NONE ->
                                     word.replaceFirstChar { it.uppercase() }
-                                else -> {
-                                    android.util.Log.d("CAP_DEBUG", "shiftState=$shiftState capsMode=$capsMode word=$word override=$userShiftOverrideActive")
-                                    word
-                                }
+                                // Primera letra de la palabra fue mayúscula
+                                firstLetterWasUpper ->
+                                    word.replaceFirstChar { it.uppercase() }
+                                else -> word
                             }
                             candidate.copy(text = finalText)
                         } else {

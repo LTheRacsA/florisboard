@@ -163,6 +163,9 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                 updateActiveEvaluators()
             }
             editorInstance.activeContentFlow.collectIn(scope) { content ->
+                if (content.composingText.isBlank()) {
+                    nlpManager.resetShiftOverride()
+                }
                 resetSuggestions(content)
             }
             prefs.devtools.enabled.asFlow().collectLatestIn(scope) {

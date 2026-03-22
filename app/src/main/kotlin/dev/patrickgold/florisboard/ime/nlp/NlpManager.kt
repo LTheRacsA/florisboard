@@ -61,6 +61,8 @@ class NlpManager(context: Context) {
     private val subtypeManager by context.subtypeManager()
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    // true cuando el usuario presionó shift manualmente — override total de capitalización
+    @Volatile private var userShiftOverrideActive = false
     private val clipboardSuggestionProvider = ClipboardSuggestionProvider(context)
     private val emojiSuggestionProvider = EmojiSuggestionProvider(context)
     private val providers = guardedByLock {
@@ -108,6 +110,16 @@ class NlpManager(context: Context) {
             preload(subtype)
         }
         keyboardManager.activeState.collectLatestIn(scope) {
+            val shiftState = keyboardManager.activeState.inputShiftState
+            // Detectar si el usuario presionó shift manualmente
+            if (shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ||
+                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK) {
+                userShiftOverrideActive = true
+            } else if (shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
+                       userShiftOverrideActive) {
+                // Usuario bajó a minúscula intencionalmente
+                userShiftOverrideActive = true // mantener override activo
+            }
             if (isSuggestionOn()) {
                 suggest(subtypeManager.activeSubtype, editorInstance.activeContent)
             }
@@ -197,6 +209,10 @@ class NlpManager(context: Context) {
         }
     }
 
+    fun resetShiftOverride() {
+        userShiftOverrideActive = false
+    }
+
     fun isSuggestionOn(): Boolean =
         prefs.suggestion.enabled.get()
             || prefs.emoji.suggestionEnabled.get()
@@ -230,15 +246,19 @@ class NlpManager(context: Context) {
                         isPrivateSession = keyboardManager.activeState.isIncognitoMode,
                     ).map { candidate ->
                         if (candidate is WordSuggestionCandidate) {
+                            val shiftState = keyboardManager.activeState.inputShiftState
                             val fixed = keyboardManager.fixCase(candidate.text.toString())
-                            // Si fixCase no cambió nada (UNSHIFTED) pero el texto empieza con mayúscula,
-                            // respetar esa capitalización inicial del usuario
-                            val finalText = if (fixed == candidate.text.toString().lowercase() &&
+                            val finalText = when {
+                                // Override activo: el teclado manda sobre todo
+                                userShiftOverrideActive -> fixed
+                                // SHIFTED_AUTOMATIC o UNSHIFTED sin override:
+                                // respetar inicial mayúscula del rawInput (autocap)
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
                                 content.composingText.isNotEmpty() &&
-                                content.composingText.first().isUpperCase()) {
-                                fixed.replaceFirstChar { it.uppercase() }
-                            } else {
-                                fixed
+                                content.composingText.first().isUpperCase() -> {
+                                    fixed.replaceFirstChar { it.uppercase() }
+                                }
+                                else -> fixed
                             }
                             candidate.copy(text = finalText)
                         } else {

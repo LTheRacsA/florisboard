@@ -808,13 +808,16 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                                 nlpManager.getAutoCommitCandidate()?.let { commitCandidate(it) }
                             }
                             // Detectar si es la primera letra de una nueva palabra con mayúscula
-                            // Lo hacemos ANTES del commit para leer el estado correcto del composing
+                            // Leer shift state ANTES del commit (se resetea después)
                             val composingBefore = editorInstance.activeContent.composingText
-                            val shiftActive = activeState.inputShiftState != InputShiftState.UNSHIFTED
-                            if (composingBefore.isBlank() && text.isNotEmpty() && (text[0].isUpperCase() || shiftActive)) {
-                                nlpManager.setFirstLetterUpper(true)
-                            } else if (composingBefore.isBlank()) {
-                                nlpManager.setFirstLetterUpper(false)
+                            val shiftStateNow = activeState.inputShiftState
+                            val firstLetterIsUpper = composingBefore.isBlank() && (
+                                shiftStateNow == InputShiftState.SHIFTED_MANUAL ||
+                                shiftStateNow == InputShiftState.SHIFTED_AUTOMATIC ||
+                                shiftStateNow == InputShiftState.CAPS_LOCK
+                            )
+                            if (composingBefore.isBlank()) {
+                                nlpManager.setFirstLetterUpper(firstLetterIsUpper)
                             }
                             editorInstance.commitChar(text)
                         }

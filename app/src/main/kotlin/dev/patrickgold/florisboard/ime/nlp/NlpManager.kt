@@ -261,7 +261,10 @@ class NlpManager(context: Context) {
                                 // Cursor en posición de autocap (inicio de frase, etc.)
                                 capsMode != dev.patrickgold.florisboard.ime.editor.InputAttributes.CapsMode.NONE ->
                                     word.replaceFirstChar { it.uppercase() }
-                                else -> word
+                                else -> {
+                                    flogDebug { "CAP_DEBUG: shiftState=$shiftState capsMode=$capsMode word=$word override=$userShiftOverrideActive" }
+                                    word
+                                }
                             }
                             candidate.copy(text = finalText)
                         } else {

@@ -318,7 +318,7 @@ class LatinLanguageProvider(context: Context) : SpellingProvider, SuggestionProv
 
         return finalList.take(maxCandidateCount).map { (word, score) ->
             WordSuggestionCandidate(
-                text = if (inputStartsUpper) word.replaceFirstChar { it.uppercase() } else word,
+                text = word,
                 confidence = (score / 305.0).coerceIn(0.0, 1.0),
                 isEligibleForAutoCommit = false,
                 isEligibleForUserRemoval = false,

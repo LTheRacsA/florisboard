@@ -246,15 +246,24 @@ class NlpManager(context: Context) {
                         if (candidate is WordSuggestionCandidate) {
                             val shiftState = keyboardManager.activeState.inputShiftState
                             val word = candidate.text.toString()
-                            // LatinLanguageProvider ya maneja la inicial mayúscula.
-                            // Solo aplicamos CAPS_LOCK y override de minúscula manual.
+                            val rawComposing = editorInstance.activeContent.composingText
+                            val startsUpper = rawComposing.isNotEmpty() && rawComposing[0].isUpperCase()
                             val finalText = when {
+                                // CAPS_LOCK: todo mayúsculas
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
                                     word.uppercase()
+                                // Override activo: usuario bajó a minúscula manualmente
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
                                 userShiftOverrideActive ->
                                     word.lowercase()
-                                else -> word
+                                // SHIFTED_MANUAL: usuario activó mayúscula
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ->
+                                    word.lowercase().replaceFirstChar { it.uppercase() }
+                                // Respetar inicial mayúscula real del composing
+                                startsUpper ->
+                                    word.lowercase().replaceFirstChar { it.uppercase() }
+                                else ->
+                                    word.lowercase()
                             }
                             candidate.copy(text = finalText)
                         } else {

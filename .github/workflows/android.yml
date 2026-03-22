@@ -40,7 +40,7 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/florisboard.keystore
       - name: Build Release APK
-        run: ./gradlew clean assembleRelease
+        run: ./gradlew clean assembleDebug
         env:
           SIGNING_STORE_PATH: florisboard.keystore
           SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -50,5 +50,5 @@ jobs:
         run: find app/build/outputs -name "*.apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: app-release.apk
-          path: app/build/outputs/apk/release/app-release.apk
+          name: app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk

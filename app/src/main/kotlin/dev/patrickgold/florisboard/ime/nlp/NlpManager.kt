@@ -243,32 +243,7 @@ class NlpManager(context: Context) {
                         allowPossiblyOffensive = !prefs.suggestion.blockPossiblyOffensive.get(),
                         isPrivateSession = keyboardManager.activeState.isIncognitoMode,
                     ).map { candidate ->
-                        if (candidate is WordSuggestionCandidate) {
-                            val shiftState = keyboardManager.activeState.inputShiftState
-                            val word = candidate.text.toString()
-                            val rawComposing = editorInstance.activeContent.composingText
-                            val startsUpper = rawComposing.isNotEmpty() && rawComposing[0].isUpperCase()
-                            val finalText = when {
-                                // CAPS_LOCK: todo mayúsculas
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
-                                    word.uppercase()
-                                // Override activo: usuario bajó a minúscula manualmente
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
-                                userShiftOverrideActive ->
-                                    word.lowercase()
-                                // SHIFTED_MANUAL: usuario activó mayúscula
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ->
-                                    word.lowercase().replaceFirstChar { it.uppercase() }
-                                // Respetar inicial mayúscula real del composing
-                                startsUpper ->
-                                    word.lowercase().replaceFirstChar { it.uppercase() }
-                                else ->
-                                    word.lowercase()
-                            }
-                            candidate.copy(text = finalText)
-                        } else {
-                            candidate
-                        }
+                        candidate
                     }
                 }
             }

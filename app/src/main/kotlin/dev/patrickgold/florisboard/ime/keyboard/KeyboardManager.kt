@@ -807,14 +807,16 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                             if (!UCharacter.isUAlphabetic(UCharacter.codePointAt(text, 0))) {
                                 nlpManager.getAutoCommitCandidate()?.let { commitCandidate(it) }
                             }
-                            editorInstance.commitChar(text)
-                            // Detectar si la primera letra de la palabra es mayúscula
-                            val composingLen = editorInstance.activeContent.composingText.length
-                            if (composingLen == 1 && text.isNotEmpty() && text[0].isUpperCase()) {
+                            // Detectar si es la primera letra de una nueva palabra con mayúscula
+                            // Lo hacemos ANTES del commit para leer el estado correcto del composing
+                            val composingBefore = editorInstance.activeContent.composingText
+                            val shiftActive = activeState.inputShiftState != InputShiftState.UNSHIFTED
+                            if (composingBefore.isBlank() && text.isNotEmpty() && (text[0].isUpperCase() || shiftActive)) {
                                 nlpManager.setFirstLetterUpper(true)
-                            } else if (composingLen == 0) {
+                            } else if (composingBefore.isBlank()) {
                                 nlpManager.setFirstLetterUpper(false)
                             }
+                            editorInstance.commitChar(text)
                         }
                         else -> {
                             flogError(LogTopic.KEY_EVENTS) { "Received unknown key: $data" }

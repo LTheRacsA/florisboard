@@ -262,7 +262,7 @@ class NlpManager(context: Context) {
                                 capsMode != dev.patrickgold.florisboard.ime.editor.InputAttributes.CapsMode.NONE ->
                                     word.replaceFirstChar { it.uppercase() }
                                 else -> {
-                                    flogDebug { "CAP_DEBUG: shiftState=$shiftState capsMode=$capsMode word=$word override=$userShiftOverrideActive" }
+                                    android.util.Log.d("CAP_DEBUG", "shiftState=$shiftState capsMode=$capsMode word=$word override=$userShiftOverrideActive")
                                     word
                                 }
                             }

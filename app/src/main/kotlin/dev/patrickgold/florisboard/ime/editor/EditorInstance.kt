@@ -253,7 +253,7 @@ class EditorInstance(context: Context) : AbstractEditorInstance(context) {
         val text = candidate.text.toString()
         if (text.isEmpty()) return false
         // En campos sin composing (raw editors), borrar palabra actual e insertar sugerencia
-        if (activeInfo.isRawInputEditor) {
+        if (activeInfo.isRawInputEditor || !activeContent.composing.isValid) {
             val ic = currentInputConnection() ?: return false
             val contentText = activeContent.textBeforeSelection
             val lastWord = contentText.trimEnd().split(Regex("\\s+")).lastOrNull() ?: ""

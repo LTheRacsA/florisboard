@@ -355,11 +355,28 @@ class NlpManager(context: Context) {
                             ))
                         }
                     } else if (!isTyping && validClips.isEmpty()) {
-                        // Campo vacío sin clips recientes → palabras frecuentes
-                        buildList {
-                            internalSuggestionsGuard.withLock {
-                                addAll(internalSuggestions.second.take(3))
+                        // Campo vacío sin clips recientes → palabras frecuentes del usuario
+                        val dao = try { 
+                            dev.patrickgold.florisboard.ime.dictionary.DictionaryManager.default().florisUserDictionaryDao()
+                        } catch (e: Exception) { null }
+                        val freqWords = dao?.queryAll()
+                            ?.sortedByDescending { it.freq }
+                            ?.take(3)
+                        if (!freqWords.isNullOrEmpty()) {
+                            freqWords.map { entry ->
+                                dev.patrickgold.florisboard.ime.nlp.WordSuggestionCandidate(
+                                    text = entry.word,
+                                    confidence = entry.freq / 255.0,
+                                    isEligibleForAutoCommit = false,
+                                    isEligibleForUserRemoval = false,
+                                    sourceProvider = null,
+                                )
+                            }.let { words ->
+                                if (words.size >= 2) listOf(words[1], words[0]) + words.drop(2)
+                                else words
                             }
+                        } else {
+                            emptyList()
                         }
                     } else {
                         // Solo texto

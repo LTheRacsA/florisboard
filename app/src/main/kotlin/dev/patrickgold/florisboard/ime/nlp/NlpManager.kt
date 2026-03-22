@@ -266,8 +266,7 @@ class NlpManager(context: Context) {
                                 else -> {
                                     val textBefore = editorInstance.activeContent.textBeforeSelection
                                     val isStartOfSentence = textBefore.isBlank() ||
-                                        textBefore.trimEnd().last().let { it == '.' || it == '!' || it == '?' || it == '
-' }
+                                        textBefore.trimEnd().last().let { it == '.' || it == '!' || it == '?' || it == '\n' }
                                     if (isStartOfSentence) {
                                         word.lowercase().replaceFirstChar { it.uppercase() }
                                     } else {

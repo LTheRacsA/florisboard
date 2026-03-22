@@ -262,11 +262,13 @@ class NlpManager(context: Context) {
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
                                 userShiftOverrideActive ->
                                     word.lowercase()
-                                // UNSHIFTED sin override: respetar la palabra tal como está en el diccionario
-                                // Si el rawComposing tiene inicial mayúscula, respetarla
+                                // UNSHIFTED sin override: verificar si es inicio de frase
                                 else -> {
-                                    val rawComposing = editorInstance.activeContent.composingText
-                                    if (rawComposing.isNotEmpty() && rawComposing.first().isUpperCase()) {
+                                    val textBefore = editorInstance.activeContent.textBeforeSelection
+                                    val isStartOfSentence = textBefore.isBlank() ||
+                                        textBefore.trimEnd().last().let { it == '.' || it == '!' || it == '?' || it == '
+' }
+                                    if (isStartOfSentence) {
                                         word.lowercase().replaceFirstChar { it.uppercase() }
                                     } else {
                                         word.lowercase()
@@ -360,8 +362,13 @@ class NlpManager(context: Context) {
 
                     if (!isTyping && validClips.isNotEmpty()) {
                         // Campo vacío: modo clipboard
-                        // Izquierda = clip#2, Centro = clip#1, Derecha = clip#3
+                        // Izquierda = más antiguo, Centro = medio, Derecha = más reciente
                         buildList {
+                            if (validClips.size > 2) add(ClipboardSuggestionCandidate(
+                                clipboardItem = validClips[2],
+                                sourceProvider = clipboardSuggestionProvider,
+                                context = clipboardSuggestionProvider.context,
+                            ))
                             if (validClips.size > 1) add(ClipboardSuggestionCandidate(
                                 clipboardItem = validClips[1],
                                 sourceProvider = clipboardSuggestionProvider,
@@ -369,11 +376,6 @@ class NlpManager(context: Context) {
                             ))
                             add(ClipboardSuggestionCandidate(
                                 clipboardItem = validClips[0],
-                                sourceProvider = clipboardSuggestionProvider,
-                                context = clipboardSuggestionProvider.context,
-                            ))
-                            if (validClips.size > 2) add(ClipboardSuggestionCandidate(
-                                clipboardItem = validClips[2],
                                 sourceProvider = clipboardSuggestionProvider,
                                 context = clipboardSuggestionProvider.context,
                             ))

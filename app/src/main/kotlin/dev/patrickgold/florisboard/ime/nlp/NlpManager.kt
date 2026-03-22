@@ -214,6 +214,7 @@ class NlpManager(context: Context) {
     fun resetShiftOverride() {
         userShiftOverrideActive = false
         firstLetterWasUpper = false
+        nextWordUpper = false
     }
 
     fun setFirstLetterUpper(value: Boolean) {

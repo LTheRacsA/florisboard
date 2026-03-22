@@ -245,12 +245,21 @@ class NlpManager(context: Context) {
                     ).map { candidate ->
                         if (candidate is WordSuggestionCandidate) {
                             val shiftState = keyboardManager.activeState.inputShiftState
+                            val capsMode = editorInstance.activeCursorCapsMode
                             val word = candidate.text.toString()
-                            val finalText = when (shiftState) {
-                                dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
+                            val finalText = when {
+                                // CAPS_LOCK: todo mayúsculas
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
                                     word.uppercase()
-                                dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL,
-                                dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC ->
+                                // SHIFTED_MANUAL: usuario presionó shift
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ->
+                                    word.replaceFirstChar { it.uppercase() }
+                                // Override activo: usuario bajó a minúscula manualmente
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
+                                userShiftOverrideActive ->
+                                    word.lowercase()
+                                // Cursor en posición de autocap (inicio de frase, etc.)
+                                capsMode != dev.patrickgold.florisboard.ime.editor.InputAttributes.CapsMode.NONE ->
                                     word.replaceFirstChar { it.uppercase() }
                                 else -> word
                             }

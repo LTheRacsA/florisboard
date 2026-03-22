@@ -253,9 +253,17 @@ class NlpManager(context: Context) {
                                 userShiftOverrideActive -> fixed
                                 // SHIFTED_AUTOMATIC o UNSHIFTED sin override:
                                 // respetar inicial mayúscula del rawInput (autocap)
+                                // Leer composingText directo del editor para ver mayúsculas reales
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
-                                content.composingText.isNotEmpty() &&
-                                content.composingText.first().isUpperCase() -> {
+                                !userShiftOverrideActive -> {
+                                    val rawComposing = editorInstance.activeContent.composingText
+                                    if (rawComposing.isNotEmpty() && rawComposing.first().isUpperCase()) {
+                                        fixed.replaceFirstChar { it.uppercase() }
+                                    } else {
+                                        fixed
+                                    }
+                                }
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC -> {
                                     fixed.replaceFirstChar { it.uppercase() }
                                 }
                                 else -> fixed

@@ -559,7 +559,7 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
         val nextWordUpper = activeState.inputShiftState == InputShiftState.SHIFTED_MANUAL ||
             activeState.inputShiftState == InputShiftState.SHIFTED_AUTOMATIC ||
             activeState.inputShiftState == InputShiftState.CAPS_LOCK
-        nlpManager.setNextWordUpper(nextWordUpper)
+        nlpManager.nextWordUpper = nextWordUpper
         if (prefs.keyboard.spaceBarSwitchesToCharacters.get()) {
             when (activeState.keyboardMode) {
                 KeyboardMode.NUMERIC_ADVANCED,
@@ -825,7 +825,7 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                             )
                             if (composingBefore.isBlank()) {
                                 nlpManager.setFirstLetterUpper(firstLetterIsUpper)
-                                nlpManager.setNextWordUpper(false)
+                                nlpManager.nextWordUpper = false
                             }
                             editorInstance.commitChar(text)
                         }

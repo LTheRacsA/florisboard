@@ -254,17 +254,20 @@ class NlpManager(context: Context) {
                                 // SHIFTED_AUTOMATIC o UNSHIFTED sin override:
                                 // respetar inicial mayúscula del rawInput (autocap)
                                 // Leer composingText directo del editor para ver mayúsculas reales
+                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC -> {
+                                    fixed.replaceFirstChar { it.uppercase() }
+                                }
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
                                 !userShiftOverrideActive -> {
-                                    val rawComposing = editorInstance.activeContent.composingText
+                                    // Leer última palabra del texto real del editor
+                                    val rawText = editorInstance.activeContent.textBeforeSelection
+                                    val lastWord = rawText.trimEnd().split(Regex("\s+")).lastOrNull() ?: ""
+                                    val rawComposing = editorInstance.activeContent.composingText.ifEmpty { lastWord }
                                     if (rawComposing.isNotEmpty() && rawComposing.first().isUpperCase()) {
                                         fixed.replaceFirstChar { it.uppercase() }
                                     } else {
                                         fixed
                                     }
-                                }
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC -> {
-                                    fixed.replaceFirstChar { it.uppercase() }
                                 }
                                 else -> fixed
                             }

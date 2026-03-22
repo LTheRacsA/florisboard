@@ -261,7 +261,7 @@ class NlpManager(context: Context) {
                                 !userShiftOverrideActive -> {
                                     // Leer última palabra del texto real del editor
                                     val rawText = editorInstance.activeContent.textBeforeSelection
-                                    val lastWord = rawText.trimEnd().split(Regex("\s+")).lastOrNull() ?: ""
+                                    val lastWord = rawText.trimEnd().split(Regex("\\s+")).lastOrNull() ?: ""
                                     val rawComposing = editorInstance.activeContent.composingText.ifEmpty { lastWord }
                                     if (rawComposing.isNotEmpty() && rawComposing.first().isUpperCase()) {
                                         fixed.replaceFirstChar { it.uppercase() }

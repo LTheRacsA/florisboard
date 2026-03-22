@@ -111,15 +111,13 @@ class NlpManager(context: Context) {
         }
         keyboardManager.activeState.collectLatestIn(scope) {
             val shiftState = keyboardManager.activeState.inputShiftState
-            // Detectar si el usuario presionó shift manualmente
+            // Solo activar override cuando el usuario toca shift manualmente
             if (shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ||
                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK) {
                 userShiftOverrideActive = true
-            } else if (shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
-                       userShiftOverrideActive) {
-                // Usuario bajó a minúscula intencionalmente
-                userShiftOverrideActive = true // mantener override activo
             }
+            // SHIFTED_AUTOMATIC nunca activa el override — no es acción del usuario
+            // El reset ocurre en resetShiftOverride() cuando composing queda vacío
             if (isSuggestionOn()) {
                 suggest(subtypeManager.activeSubtype, editorInstance.activeContent)
             }
@@ -248,6 +246,8 @@ class NlpManager(context: Context) {
                         if (candidate is WordSuggestionCandidate) {
                             val shiftState = keyboardManager.activeState.inputShiftState
                             val word = candidate.text.toString()
+                            val composing = content.composingText.toString()
+                            val composingStartsUpper = composing.isNotEmpty() && composing[0].isUpperCase()
                             val finalText = when {
                                 // CAPS_LOCK: todo mayúsculas
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
@@ -255,24 +255,16 @@ class NlpManager(context: Context) {
                                 // SHIFTED_MANUAL: usuario pidió mayúscula — primera letra mayúscula
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ->
                                     word.lowercase().replaceFirstChar { it.uppercase() }
-                                // SHIFTED_AUTOMATIC: autocap — primera letra mayúscula
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC ->
-                                    word.lowercase().replaceFirstChar { it.uppercase() }
-                                // UNSHIFTED + override activo: usuario bajó a minúscula intencionalmente
+                                // UNSHIFTED + override manual activo: usuario bajó a minúscula
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
                                 userShiftOverrideActive ->
                                     word.lowercase()
-                                // UNSHIFTED sin override: verificar si es inicio de frase
-                                else -> {
-                                    val textBefore = editorInstance.activeContent.textBeforeSelection
-                                    val isStartOfSentence = textBefore.isBlank() ||
-                                        textBefore.trimEnd().last().let { it == '.' || it == '!' || it == '?' || it == '\n' }
-                                    if (isStartOfSentence) {
-                                        word.lowercase().replaceFirstChar { it.uppercase() }
-                                    } else {
-                                        word.lowercase()
-                                    }
-                                }
+                                // SHIFTED_AUTOMATIC o UNSHIFTED sin override:
+                                // respetar la inicial real del composing del usuario
+                                composingStartsUpper ->
+                                    word.lowercase().replaceFirstChar { it.uppercase() }
+                                else ->
+                                    word.lowercase()
                             }
                             candidate.copy(text = finalText)
                         } else {

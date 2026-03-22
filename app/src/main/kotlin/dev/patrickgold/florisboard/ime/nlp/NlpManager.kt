@@ -246,25 +246,15 @@ class NlpManager(context: Context) {
                         if (candidate is WordSuggestionCandidate) {
                             val shiftState = keyboardManager.activeState.inputShiftState
                             val word = candidate.text.toString()
-                            val composing = content.composingText.toString()
-                            val composingStartsUpper = composing.isNotEmpty() && composing[0].isUpperCase()
+                            // LatinLanguageProvider ya maneja la inicial mayúscula.
+                            // Solo aplicamos CAPS_LOCK y override de minúscula manual.
                             val finalText = when {
-                                // CAPS_LOCK: todo mayúsculas
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
                                     word.uppercase()
-                                // SHIFTED_MANUAL: usuario pidió mayúscula — primera letra mayúscula
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ->
-                                    word.lowercase().replaceFirstChar { it.uppercase() }
-                                // UNSHIFTED + override manual activo: usuario bajó a minúscula
                                 shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
                                 userShiftOverrideActive ->
                                     word.lowercase()
-                                // SHIFTED_AUTOMATIC o UNSHIFTED sin override:
-                                // respetar la inicial real del composing del usuario
-                                composingStartsUpper ->
-                                    word.lowercase().replaceFirstChar { it.uppercase() }
-                                else ->
-                                    word.lowercase()
+                                else -> word
                             }
                             candidate.copy(text = finalText)
                         } else {

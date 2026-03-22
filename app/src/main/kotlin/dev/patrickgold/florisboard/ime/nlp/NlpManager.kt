@@ -89,6 +89,9 @@ class NlpManager(context: Context) {
     var debugOverlayVersion = MutableStateFlow(0)
 
     init {
+        clipboardManager.historyFlow.collectLatestIn(scope) {
+            assembleCandidates()
+        }
         clipboardManager.primaryClipFlow.collectLatestIn(scope) {
             assembleCandidates()
         }

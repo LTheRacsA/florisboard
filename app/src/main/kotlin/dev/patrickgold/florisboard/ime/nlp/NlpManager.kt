@@ -273,9 +273,14 @@ class NlpManager(context: Context) {
                                 capsMode != dev.patrickgold.florisboard.ime.editor.InputAttributes.CapsMode.NONE ->
                                     word.replaceFirstChar { it.uppercase() }
                                 // Primera letra de la palabra fue mayúscula
-                                firstLetterWasUpper ->
+                                firstLetterWasUpper -> {
+                                    android.util.Log.d("CASE_DEBUG", "apply upper: word=$word firstUpper=$firstLetterWasUpper")
                                     word.replaceFirstChar { it.uppercase() }
-                                else -> word
+                                }
+                                else -> {
+                                    android.util.Log.d("CASE_DEBUG", "no upper: word=$word firstUpper=$firstLetterWasUpper shift=$shiftState")
+                                    word
+                                }
                             }
                             candidate.copy(text = finalText)
                         } else {

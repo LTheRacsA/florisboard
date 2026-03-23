@@ -813,19 +813,16 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                             if (!UCharacter.isUAlphabetic(UCharacter.codePointAt(text, 0))) {
                                 nlpManager.getAutoCommitCandidate()?.let { commitCandidate(it) }
                             }
-                            // Detectar si es la primera letra de una nueva palabra con mayúscula
-                            // Leer shift state ANTES del commit (se resetea después)
+                            // Capturar si el carácter real es mayúscula (data.code tiene el codepoint real)
+                            val charIsUpper = data.code in 65..90 || // A-Z
+                                (data.code > 127 && Character.isUpperCase(data.code))
                             val composingBefore = editorInstance.activeContent.composingText
-                            val shiftStateNow = activeState.inputShiftState
-                            val firstLetterIsUpper = composingBefore.isBlank() && (
-                                shiftStateNow == InputShiftState.SHIFTED_MANUAL ||
-                                shiftStateNow == InputShiftState.SHIFTED_AUTOMATIC ||
-                                shiftStateNow == InputShiftState.CAPS_LOCK ||
-                                nlpManager.nextWordUpper
-                            )
-                            if (composingBefore.isBlank()) {
-                                nlpManager.setFirstLetterUpper(firstLetterIsUpper)
+                            val prevChar = composingBefore.lastOrNull()
+                            val isStartOfWord = prevChar == null || !prevChar.isLetterOrDigit()
+                            if (isStartOfWord) {
+                                nlpManager.firstLetterWasUpper = if (charIsUpper) true else nlpManager.nextWordUpper
                                 nlpManager.nextWordUpper = false
+                                android.util.Log.d("CASE_DEBUG", "code=${data.code} upper=$charIsUpper start=$isStartOfWord firstUpper=${nlpManager.firstLetterWasUpper}")
                             }
                             editorInstance.commitChar(text)
                         }

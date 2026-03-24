@@ -163,9 +163,6 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                 updateActiveEvaluators()
             }
             editorInstance.activeContentFlow.collectIn(scope) { content ->
-                if (content.composingText.isBlank()) {
-                    nlpManager.resetShiftOverride()
-                }
                 resetSuggestions(content)
             }
             prefs.devtools.enabled.asFlow().collectLatestIn(scope) {
@@ -554,12 +551,6 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
     private fun handleSpace(data: KeyData) {
         val candidate = nlpManager.getAutoCommitCandidate()
         candidate?.let { commitCandidate(it) }
-        // Guardar si la próxima palabra debe empezar con mayúscula
-        // El shift se reseteará después del espacio, así que lo capturamos aquí
-        val nextWordUpper = activeState.inputShiftState == InputShiftState.SHIFTED_MANUAL ||
-            activeState.inputShiftState == InputShiftState.SHIFTED_AUTOMATIC ||
-            activeState.inputShiftState == InputShiftState.CAPS_LOCK
-        nlpManager.nextWordUpper = nextWordUpper
         if (prefs.keyboard.spaceBarSwitchesToCharacters.get()) {
             when (activeState.keyboardMode) {
                 KeyboardMode.NUMERIC_ADVANCED,
@@ -812,17 +803,6 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
                             val text = data.asString(isForDisplay = false)
                             if (!UCharacter.isUAlphabetic(UCharacter.codePointAt(text, 0))) {
                                 nlpManager.getAutoCommitCandidate()?.let { commitCandidate(it) }
-                            }
-                            // Capturar si el carácter real es mayúscula (data.code tiene el codepoint real)
-                            val charIsUpper = data.code in 65..90 || // A-Z
-                                (data.code > 127 && Character.isUpperCase(data.code))
-                            val composingBefore = editorInstance.activeContent.composingText
-                            val prevChar = composingBefore.lastOrNull()
-                            val isStartOfWord = prevChar == null || !prevChar.isLetterOrDigit()
-                            if (isStartOfWord) {
-                                nlpManager.firstLetterWasUpper = if (charIsUpper) true else nlpManager.nextWordUpper
-                                nlpManager.nextWordUpper = false
-                                android.util.Log.d("CASE_DEBUG", "code=${data.code} upper=$charIsUpper start=$isStartOfWord firstUpper=${nlpManager.firstLetterWasUpper}")
                             }
                             editorInstance.commitChar(text)
                         }

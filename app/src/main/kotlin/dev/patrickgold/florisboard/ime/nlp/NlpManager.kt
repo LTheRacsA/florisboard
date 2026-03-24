@@ -61,12 +61,6 @@ class NlpManager(context: Context) {
     private val subtypeManager by context.subtypeManager()
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    // true cuando el usuario presionó shift manualmente — override total de capitalización
-    @Volatile private var userShiftOverrideActive = false
-    // true cuando la primera letra de la palabra actual fue mayúscula
-    @Volatile var firstLetterWasUpper = false
-    // true cuando la próxima palabra debe empezar con mayúscula (capturado al escribir espacio)
-    @Volatile var nextWordUpper = false
     private val clipboardSuggestionProvider = ClipboardSuggestionProvider(context)
     private val emojiSuggestionProvider = EmojiSuggestionProvider(context)
     private val providers = guardedByLock {
@@ -114,14 +108,6 @@ class NlpManager(context: Context) {
             preload(subtype)
         }
         keyboardManager.activeState.collectLatestIn(scope) {
-            val shiftState = keyboardManager.activeState.inputShiftState
-            // Solo activar override cuando el usuario toca shift manualmente
-            if (shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ||
-                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK) {
-                userShiftOverrideActive = true
-            }
-            // SHIFTED_AUTOMATIC nunca activa el override — no es acción del usuario
-            // El reset ocurre en resetShiftOverride() cuando composing queda vacío
             if (isSuggestionOn()) {
                 suggest(subtypeManager.activeSubtype, editorInstance.activeContent)
             }
@@ -211,17 +197,6 @@ class NlpManager(context: Context) {
         }
     }
 
-    fun resetShiftOverride() {
-        userShiftOverrideActive = false
-        firstLetterWasUpper = false
-        nextWordUpper = false
-    }
-
-    fun setFirstLetterUpper(value: Boolean) {
-        firstLetterWasUpper = value
-    }
-
-
     fun isSuggestionOn(): Boolean =
         prefs.suggestion.enabled.get()
             || prefs.emoji.suggestionEnabled.get()
@@ -256,31 +231,14 @@ class NlpManager(context: Context) {
                     ).map { candidate ->
                         if (candidate is WordSuggestionCandidate) {
                             val shiftState = keyboardManager.activeState.inputShiftState
-                            val capsMode = editorInstance.activeCursorCapsMode
                             val word = candidate.text.toString()
-                            val finalText = when {
-                                // CAPS_LOCK: todo mayúsculas
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
+                            val finalText = when (shiftState) {
+                                dev.patrickgold.florisboard.ime.input.InputShiftState.CAPS_LOCK ->
                                     word.uppercase()
-                                // SHIFTED_MANUAL: usuario presionó shift
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL ->
+                                dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_MANUAL,
+                                dev.patrickgold.florisboard.ime.input.InputShiftState.SHIFTED_AUTOMATIC ->
                                     word.replaceFirstChar { it.uppercase() }
-                                // Override activo: usuario bajó a minúscula manualmente
-                                shiftState == dev.patrickgold.florisboard.ime.input.InputShiftState.UNSHIFTED &&
-                                userShiftOverrideActive ->
-                                    word.lowercase()
-                                // Cursor en posición de autocap (inicio de frase, etc.)
-                                capsMode != dev.patrickgold.florisboard.ime.editor.InputAttributes.CapsMode.NONE ->
-                                    word.replaceFirstChar { it.uppercase() }
-                                // Primera letra de la palabra fue mayúscula
-                                firstLetterWasUpper -> {
-                                    android.util.Log.d("CASE_DEBUG", "apply upper: word=$word firstUpper=$firstLetterWasUpper")
-                                    word.replaceFirstChar { it.uppercase() }
-                                }
-                                else -> {
-                                    android.util.Log.d("CASE_DEBUG", "no upper: word=$word firstUpper=$firstLetterWasUpper shift=$shiftState")
-                                    word
-                                }
+                                else -> word
                             }
                             candidate.copy(text = finalText)
                         } else {
